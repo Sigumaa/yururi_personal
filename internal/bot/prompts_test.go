@@ -22,6 +22,9 @@ func TestInstructionsMentionPersonaAndContextDocs(t *testing.T) {
 	if !strings.Contains(dev, "確認なく実行してよい") {
 		t.Fatalf("expected developer instructions to prefer act-first, got %s", dev)
 	}
+	if !strings.Contains(dev, "必要なら会話の途中で複数回メッセージを送ってよい") {
+		t.Fatalf("expected developer instructions to allow multi-message progress, got %s", dev)
+	}
 }
 
 func TestRenderMessageForPromptIncludesAttachments(t *testing.T) {
@@ -53,5 +56,32 @@ func TestBuildBackgroundTaskPromptForcesExecution(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "サーバー俯瞰と job 一覧を確認して短くまとめる") {
 		t.Fatalf("expected original task prompt, got %s", prompt)
+	}
+}
+
+func TestPlannerPromptPrefersImmediateExecutionOverJobs(t *testing.T) {
+	prompt := buildPlannerPrompt(
+		memory.Message{
+			ChannelID:   "c-1",
+			ChannelName: "general",
+			AuthorID:    "u-1",
+			AuthorName:  "shiyui",
+			Content:     "できることを確認して",
+		},
+		memory.ChannelProfile{Name: "general", Kind: "conversation", ReplyAggressiveness: 0.8, AutonomyLevel: 0.8},
+		nil,
+		nil,
+		nil,
+		"<@bot>",
+	)
+
+	if !strings.Contains(prompt, "その場で終わる確認、俯瞰、読取り、軽い編集は、job にせず今この turn で完了させる") {
+		t.Fatalf("expected prompt to avoid unnecessary jobs, got %s", prompt)
+	}
+	if !strings.Contains(prompt, "discord.send_message を使って会話の途中で複数回話してよい") {
+		t.Fatalf("expected prompt to allow multiple visible updates, got %s", prompt)
+	}
+	if !strings.Contains(prompt, "actions に announcement_text を入れると、実行の前に自然な一言を挟める") {
+		t.Fatalf("expected prompt to mention action announcement, got %s", prompt)
 	}
 }

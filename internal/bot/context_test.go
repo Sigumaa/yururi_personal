@@ -67,4 +67,10 @@ func TestBuildCapabilitiesContextListsRealCapabilities(t *testing.T) {
 	if !strings.Contains(raw, "確認なく実行してよい") {
 		t.Fatalf("expected act-first guidance, got %s", raw)
 	}
+	if !strings.Contains(raw, "不要に job へ逃がさない") {
+		t.Fatalf("expected immediate execution guidance, got %s", raw)
+	}
+	if !strings.Contains(raw, "複数回話してよい") {
+		t.Fatalf("expected multi-message guidance, got %s", raw)
+	}
 }

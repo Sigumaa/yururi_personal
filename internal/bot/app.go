@@ -323,6 +323,9 @@ func (a *App) executeDecision(ctx context.Context, msg memory.Message, selected 
 	}
 
 	for _, action := range selected.Actions {
+		if err := a.sendActionAnnouncement(ctx, msg.ChannelID, action); err != nil {
+			return executionReport{}, err
+		}
 		a.logger.Debug("server action start", "action", previewJSON(action, 600))
 		summary, err := a.executeAction(ctx, action)
 		if err != nil {
@@ -340,6 +343,22 @@ func (a *App) executeDecision(ctx context.Context, msg memory.Message, selected 
 		report.Jobs = append(report.Jobs, summary)
 	}
 	return report, nil
+}
+
+func (a *App) sendActionAnnouncement(ctx context.Context, channelID string, action decision.ServerAction) error {
+	text := strings.TrimSpace(action.AnnouncementText)
+	if text == "" {
+		return nil
+	}
+	if a.discord == nil {
+		return errors.New("discord is not connected")
+	}
+	sentID, err := a.discord.SendMessage(ctx, channelID, text)
+	if err != nil {
+		return err
+	}
+	a.logger.Info("action announcement sent", "channel_id", channelID, "message_id", sentID, "action_type", action.Type, "text_preview", previewText(text, 240))
+	return nil
 }
 
 func (a *App) executeAction(ctx context.Context, action decision.ServerAction) (string, error) {
@@ -676,7 +695,7 @@ func (a *App) registerTools(registry *codex.ToolRegistry) {
 	})
 	registry.Register(codex.ToolSpec{
 		Name:        "discord.send_message",
-		Description: "指定チャンネルへメッセージを送る",
+		Description: "指定チャンネルへメッセージを送る。進捗共有や途中経過の連投にも使える",
 		InputSchema: objectSchema(
 			fieldSchema("channel_id", "string", "送信先チャンネル ID"),
 			fieldSchema("content", "string", "送信内容"),
