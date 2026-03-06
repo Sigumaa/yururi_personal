@@ -2,8 +2,9 @@ package decision
 
 func OutputSchema() map[string]any {
 	return map[string]any{
-		"type":     "object",
-		"required": []string{"action", "reason"},
+		"type":                 "object",
+		"additionalProperties": false,
+		"required":             []string{"action", "reason"},
 		"properties": map[string]any{
 			"action": map[string]any{
 				"type": "string",
@@ -27,8 +28,9 @@ func OutputSchema() map[string]any {
 			"memory_writes": map[string]any{
 				"type": "array",
 				"items": map[string]any{
-					"type":     "object",
-					"required": []string{"kind", "key", "value"},
+					"type":                 "object",
+					"additionalProperties": false,
+					"required":             []string{"kind", "key", "value"},
 					"properties": map[string]any{
 						"kind":  map[string]any{"type": "string"},
 						"key":   map[string]any{"type": "string"},
@@ -39,23 +41,36 @@ func OutputSchema() map[string]any {
 			"jobs": map[string]any{
 				"type": "array",
 				"items": map[string]any{
-					"type":     "object",
-					"required": []string{"kind", "title"},
+					"type":                 "object",
+					"additionalProperties": false,
+					"required":             []string{"kind", "title"},
 					"properties": map[string]any{
 						"kind":        map[string]any{"type": "string"},
 						"title":       map[string]any{"type": "string"},
 						"channel_id":  map[string]any{"type": "string"},
 						"schedule":    map[string]any{"type": "string"},
 						"description": map[string]any{"type": "string"},
-						"payload":     map[string]any{"type": "object"},
+						"payload": map[string]any{
+							"type":                 "object",
+							"additionalProperties": false,
+							"properties": map[string]any{
+								"repo":       map[string]any{"type": "string"},
+								"since":      map[string]any{"type": "string"},
+								"url":        map[string]any{"type": "string"},
+								"query":      map[string]any{"type": "string"},
+								"channel_id": map[string]any{"type": "string"},
+								"note":       map[string]any{"type": "string"},
+							},
+						},
 					},
 				},
 			},
 			"actions": map[string]any{
 				"type": "array",
 				"items": map[string]any{
-					"type":     "object",
-					"required": []string{"type"},
+					"type":                 "object",
+					"additionalProperties": false,
+					"required":             []string{"type"},
 					"properties": map[string]any{
 						"type":              map[string]any{"type": "string"},
 						"name":              map[string]any{"type": "string"},

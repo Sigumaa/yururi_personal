@@ -195,8 +195,9 @@ func (a *App) summarizeMessages(ctx context.Context, period string, start time.T
 	}
 
 	schema := map[string]any{
-		"type":     "object",
-		"required": []string{"summary"},
+		"type":                 "object",
+		"additionalProperties": false,
+		"required":             []string{"summary"},
 		"properties": map[string]any{
 			"summary": map[string]any{
 				"type": "string",
