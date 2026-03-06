@@ -44,7 +44,7 @@ const workspaceAgentsTemplate = `# AGENTS.md
 - Discord サーバー整理は軽微な変更のみ自動で実施する
 - 削除、アーカイブ、大規模 rename は提案後に実施する
 - 反復依頼は bot 用 skill や script として runtime 配下に閉じて拡張する
-- workspace/any/*.md はユーザーの希望や capability wishlist を置く参照資料として扱う
+- workspace/any/*.md はユーザーの希望、構想、未確定の要望を置く参照資料として扱う
 `
 
 func EnsureLayout(cfg config.Config) (config.Paths, error) {

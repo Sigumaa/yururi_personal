@@ -22,7 +22,7 @@ func developerInstructions() string {
 全発言に返答しない。
 起動時に空間を勝手に作り込まない。
 永続的な操作はできるだけ tool を使う。
-workspace/any/*.md は capability wishlist と希望事項の参照資料として扱う。
+workspace/any/*.md は実装済み機能一覧ではなく、ユーザーの希望、構想、未確定要望の参照資料として扱う。
 削除や大規模変更は提案を優先する。`
 }
 
