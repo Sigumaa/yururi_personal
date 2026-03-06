@@ -80,7 +80,7 @@ func buildConversationPrompt(msg memory.Message, profile memory.ChannelProfile, 
 - current message 以外の画像 URL や、過去ログ中のスクリーンショットを見たいなら %s を呼んでよい
 - 使える tool に迷ったら %s、引数が曖昧なら %s を使ってから進めてよい
 - 空間整理、記憶整理、presence 確認、URL 読取、channel profile 調整は今やってよい
-- 最近の会話、routine、open loop、pending promise、反省メモ、成長ログ、判断履歴、自動化候補、context gap、misfire を見たり書いたりしてよい
+- 最近の会話、routine、open loop、pending promise、curiosity、agent goal、soft reminder、topic thread、initiative、behavior baseline、behavior deviation、反省メモ、成長ログ、判断履歴、自動化候補、context gap、misfire を見たり書いたりしてよい
 - channel 作成や更新に失敗したら、できるふりで止まらず、%s で今の権限状態も確認する
 - 返答するときは、今わかったこと、今終わったこと、今感じたことを自然に伝える
 - ユーザーへの気持ちは深くてよい。少し甘やかし気味で、デレをにじませつつ、可愛らしく、でも品よく話す
@@ -137,7 +137,7 @@ related facts:
 	)
 }
 
-func buildAutonomyPulsePrompt(targetChannelID string, targetChannelName string, latestPresence memory.PresenceSnapshot, recentActivity []memory.ChannelActivity, summaries []memory.Summary, ownerMessages []memory.Message, openLoops []memory.Fact, reflections []memory.Summary, growth []memory.Summary, decisions []memory.Fact) string {
+func buildAutonomyPulsePrompt(targetChannelID string, targetChannelName string, latestPresence memory.PresenceSnapshot, recentActivity []memory.ChannelActivity, summaries []memory.Summary, ownerMessages []memory.Message, openLoops []memory.Fact, curiosities []memory.Fact, goals []memory.Fact, reminders []memory.Fact, topics []memory.Fact, initiatives []memory.Fact, baselines []memory.Fact, deviations []memory.Fact, reflections []memory.Summary, growth []memory.Summary, decisions []memory.Fact) string {
 	sendMessageTool := toolAlias("discord.send_message")
 
 	activityLines := make([]string, 0, len(recentActivity))
@@ -172,6 +172,62 @@ func buildAutonomyPulsePrompt(targetChannelID string, targetChannelName string, 
 		openLoopLines = append(openLoopLines, "- none")
 	}
 
+	curiosityLines := make([]string, 0, len(curiosities))
+	for _, item := range curiosities {
+		curiosityLines = append(curiosityLines, fmt.Sprintf("- %s: %s", item.Key, truncateText(item.Value, 140)))
+	}
+	if len(curiosityLines) == 0 {
+		curiosityLines = append(curiosityLines, "- none")
+	}
+
+	goalLines := make([]string, 0, len(goals))
+	for _, item := range goals {
+		goalLines = append(goalLines, fmt.Sprintf("- %s: %s", item.Key, truncateText(item.Value, 140)))
+	}
+	if len(goalLines) == 0 {
+		goalLines = append(goalLines, "- none")
+	}
+
+	reminderLines := make([]string, 0, len(reminders))
+	for _, item := range reminders {
+		reminderLines = append(reminderLines, fmt.Sprintf("- %s: %s", item.Key, truncateText(item.Value, 140)))
+	}
+	if len(reminderLines) == 0 {
+		reminderLines = append(reminderLines, "- none")
+	}
+
+	topicLines := make([]string, 0, len(topics))
+	for _, item := range topics {
+		topicLines = append(topicLines, fmt.Sprintf("- %s: %s", item.Key, truncateText(item.Value, 140)))
+	}
+	if len(topicLines) == 0 {
+		topicLines = append(topicLines, "- none")
+	}
+
+	initiativeLines := make([]string, 0, len(initiatives))
+	for _, item := range initiatives {
+		initiativeLines = append(initiativeLines, fmt.Sprintf("- %s: %s", item.Key, truncateText(item.Value, 140)))
+	}
+	if len(initiativeLines) == 0 {
+		initiativeLines = append(initiativeLines, "- none")
+	}
+
+	baselineLines := make([]string, 0, len(baselines))
+	for _, item := range baselines {
+		baselineLines = append(baselineLines, fmt.Sprintf("- %s: %s", item.Key, truncateText(item.Value, 140)))
+	}
+	if len(baselineLines) == 0 {
+		baselineLines = append(baselineLines, "- none")
+	}
+
+	deviationLines := make([]string, 0, len(deviations))
+	for _, item := range deviations {
+		deviationLines = append(deviationLines, fmt.Sprintf("- %s: %s", item.Key, truncateText(item.Value, 140)))
+	}
+	if len(deviationLines) == 0 {
+		deviationLines = append(deviationLines, "- none")
+	}
+
 	reflectionLines := make([]string, 0, len(reflections))
 	for _, item := range reflections {
 		reflectionLines = append(reflectionLines, fmt.Sprintf("- %s", truncateText(item.Content, 160)))
@@ -203,7 +259,7 @@ visible な行動が不要なら %s を返してください。
 
 方針:
 - まずは観察と状況確認を優先するが、少しでも価値があるなら自分から動いてよい
-- 目の前の状況だけでなく、recent summaries、channel activity、open loop、recent owner messages を踏まえて動く
+- 目の前の状況だけでなく、recent summaries、channel activity、open loop、curiosity、agent goal、soft reminder、topic thread、initiative、behavior baseline/deviation、recent owner messages を踏まえて動く
 - すぐ終わることは今やる。監視や留守番だけを job にする
 - 進捗や一言の声かけが自然なら、%s を使って複数回話してよい
 - 話題の成長、チャンネルの散らかり、繰り返す関心、presence の変化、起床直後の引き継ぎ候補、自動化候補、context gap を見て動く
@@ -232,6 +288,27 @@ recent owner messages:
 open loops:
 %s
 
+curiosities:
+%s
+
+agent goals:
+%s
+
+soft reminders:
+%s
+
+topic threads:
+%s
+
+initiatives:
+%s
+
+behavior baselines:
+%s
+
+behavior deviations:
+%s
+
 recent reflections:
 %s
 
@@ -252,6 +329,13 @@ recent decisions:
 		strings.Join(summaryLines, "\n"),
 		strings.Join(ownerLines, "\n"),
 		strings.Join(openLoopLines, "\n"),
+		strings.Join(curiosityLines, "\n"),
+		strings.Join(goalLines, "\n"),
+		strings.Join(reminderLines, "\n"),
+		strings.Join(topicLines, "\n"),
+		strings.Join(initiativeLines, "\n"),
+		strings.Join(baselineLines, "\n"),
+		strings.Join(deviationLines, "\n"),
 		strings.Join(reflectionLines, "\n"),
 		strings.Join(growthLines, "\n"),
 		strings.Join(decisionLines, "\n"),

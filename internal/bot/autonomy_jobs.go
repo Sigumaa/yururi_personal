@@ -61,6 +61,104 @@ func (a *App) handleOpenLoopReviewJob(ctx context.Context, job jobs.Job) (jobs.R
 	return a.runNarrativeJob(ctx, job, "open_loop", prompt, nextRun, false)
 }
 
+func (a *App) handleCuriosityReviewJob(ctx context.Context, job jobs.Job) (jobs.Result, error) {
+	curiosities, err := a.store.ListFacts(ctx, "curiosity", 12)
+	if err != nil {
+		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 24*time.Hour))}, err
+	}
+	openLoops, err := a.store.ListFacts(ctx, "open_loop", 8)
+	if err != nil {
+		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 24*time.Hour))}, err
+	}
+	recentOwnerMessages, err := a.store.RecentMessagesByAuthor(ctx, a.cfg.Discord.OwnerUserID, "", 12)
+	if err != nil {
+		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 24*time.Hour))}, err
+	}
+	prompt := buildCuriosityReviewPrompt(curiosities, openLoops, recentOwnerMessages)
+	nextRun := time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 24*time.Hour))
+	return a.runNarrativeJob(ctx, job, "curiosity_review", prompt, nextRun, false)
+}
+
+func (a *App) handleInitiativeReviewJob(ctx context.Context, job jobs.Job) (jobs.Result, error) {
+	initiatives, err := a.store.ListFacts(ctx, "initiative", 12)
+	if err != nil {
+		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 48*time.Hour))}, err
+	}
+	candidates, err := a.store.ListFacts(ctx, "automation_candidate", 12)
+	if err != nil {
+		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 48*time.Hour))}, err
+	}
+	openLoops, err := a.store.ListFacts(ctx, "open_loop", 8)
+	if err != nil {
+		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 48*time.Hour))}, err
+	}
+	contextGaps, err := a.store.ListFacts(ctx, "context_gap", 8)
+	if err != nil {
+		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 48*time.Hour))}, err
+	}
+	prompt := buildInitiativeReviewPrompt(initiatives, candidates, openLoops, contextGaps)
+	nextRun := time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 48*time.Hour))
+	return a.runNarrativeJob(ctx, job, "initiative_review", prompt, nextRun, false)
+}
+
+func (a *App) handleSoftReminderReviewJob(ctx context.Context, job jobs.Job) (jobs.Result, error) {
+	reminders, err := a.store.ListFacts(ctx, "soft_reminder", 12)
+	if err != nil {
+		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 24*time.Hour))}, err
+	}
+	routines, err := a.store.ListFacts(ctx, "routine", 8)
+	if err != nil {
+		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 24*time.Hour))}, err
+	}
+	recentOwnerMessages, err := a.store.RecentMessagesByAuthor(ctx, a.cfg.Discord.OwnerUserID, "", 10)
+	if err != nil {
+		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 24*time.Hour))}, err
+	}
+	prompt := buildSoftReminderReviewPrompt(reminders, routines, recentOwnerMessages)
+	nextRun := time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 24*time.Hour))
+	return a.runNarrativeJob(ctx, job, "soft_reminder_review", prompt, nextRun, false)
+}
+
+func (a *App) handleTopicSynthesisReviewJob(ctx context.Context, job jobs.Job) (jobs.Result, error) {
+	topics, err := a.store.ListFacts(ctx, "topic_thread", 12)
+	if err != nil {
+		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 72*time.Hour))}, err
+	}
+	recentOwnerMessages, err := a.store.RecentMessagesByAuthor(ctx, a.cfg.Discord.OwnerUserID, "", 16)
+	if err != nil {
+		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 72*time.Hour))}, err
+	}
+	summaries, err := a.store.RecentSummaries(ctx, "weekly", 4)
+	if err != nil {
+		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 72*time.Hour))}, err
+	}
+	prompt := buildTopicSynthesisReviewPrompt(topics, recentOwnerMessages, summaries)
+	nextRun := time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 72*time.Hour))
+	return a.runNarrativeJob(ctx, job, "topic_synthesis_review", prompt, nextRun, false)
+}
+
+func (a *App) handleBaselineReviewJob(ctx context.Context, job jobs.Job) (jobs.Result, error) {
+	baselines, err := a.store.ListFacts(ctx, "behavior_baseline", 12)
+	if err != nil {
+		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 72*time.Hour))}, err
+	}
+	deviations, err := a.store.ListFacts(ctx, "behavior_deviation", 12)
+	if err != nil {
+		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 72*time.Hour))}, err
+	}
+	routines, err := a.store.ListFacts(ctx, "routine", 8)
+	if err != nil {
+		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 72*time.Hour))}, err
+	}
+	recentOwnerMessages, err := a.store.RecentMessagesByAuthor(ctx, a.cfg.Discord.OwnerUserID, "", 10)
+	if err != nil {
+		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 72*time.Hour))}, err
+	}
+	prompt := buildBaselineReviewPrompt(baselines, deviations, routines, recentOwnerMessages)
+	nextRun := time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 72*time.Hour))
+	return a.runNarrativeJob(ctx, job, "baseline_review", prompt, nextRun, false)
+}
+
 func (a *App) handleChannelCurationJob(ctx context.Context, job jobs.Job) (jobs.Result, error) {
 	if a.discord == nil {
 		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 168*time.Hour))}, errors.New("discord is not connected")
@@ -195,6 +293,206 @@ open loops:
 
 recent owner messages:
 %s`, noReplyToken, strings.Join(loopLines, "\n"), strings.Join(messageLines, "\n"))
+}
+
+func buildCuriosityReviewPrompt(curiosities []memory.Fact, openLoops []memory.Fact, recentOwnerMessages []memory.Message) string {
+	curiosityLines := make([]string, 0, len(curiosities))
+	for _, item := range curiosities {
+		curiosityLines = append(curiosityLines, fmt.Sprintf("- %s: %s", item.Key, item.Value))
+	}
+	if len(curiosityLines) == 0 {
+		curiosityLines = append(curiosityLines, "- none")
+	}
+	openLoopLines := make([]string, 0, len(openLoops))
+	for _, item := range openLoops {
+		openLoopLines = append(openLoopLines, fmt.Sprintf("- %s: %s", item.Key, item.Value))
+	}
+	if len(openLoopLines) == 0 {
+		openLoopLines = append(openLoopLines, "- none")
+	}
+	messageLines := make([]string, 0, len(recentOwnerMessages))
+	for _, msg := range recentOwnerMessages {
+		messageLines = append(messageLines, fmt.Sprintf("- [%s/%s] %s", msg.CreatedAt.Format("01-02 15:04"), msg.ChannelName, truncateText(msg.Content, 180)))
+	}
+	if len(messageLines) == 0 {
+		messageLines = append(messageLines, "- none")
+	}
+	return fmt.Sprintf(`気になっている疑問を見直して、自分で調べておいたら役に立ちそうなものだけを 1 から 3 個、日本語で短くまとめてください。
+ここでは即実行ではなく、調べる価値のある問い、軽い調査の向き先、寝かせてもよい問いを見分けてください。
+必要性が薄ければ %s だけを返してください。
+
+curiosities:
+%s
+
+open loops:
+%s
+
+recent owner messages:
+%s`, noReplyToken, strings.Join(curiosityLines, "\n"), strings.Join(openLoopLines, "\n"), strings.Join(messageLines, "\n"))
+}
+
+func buildInitiativeReviewPrompt(initiatives []memory.Fact, candidates []memory.Fact, openLoops []memory.Fact, contextGaps []memory.Fact) string {
+	initiativeLines := make([]string, 0, len(initiatives))
+	for _, item := range initiatives {
+		initiativeLines = append(initiativeLines, fmt.Sprintf("- %s: %s", item.Key, item.Value))
+	}
+	if len(initiativeLines) == 0 {
+		initiativeLines = append(initiativeLines, "- none")
+	}
+	candidateLines := make([]string, 0, len(candidates))
+	for _, item := range candidates {
+		candidateLines = append(candidateLines, fmt.Sprintf("- %s: %s", item.Key, item.Value))
+	}
+	if len(candidateLines) == 0 {
+		candidateLines = append(candidateLines, "- none")
+	}
+	openLoopLines := make([]string, 0, len(openLoops))
+	for _, item := range openLoops {
+		openLoopLines = append(openLoopLines, fmt.Sprintf("- %s: %s", item.Key, item.Value))
+	}
+	if len(openLoopLines) == 0 {
+		openLoopLines = append(openLoopLines, "- none")
+	}
+	gapLines := make([]string, 0, len(contextGaps))
+	for _, item := range contextGaps {
+		gapLines = append(gapLines, fmt.Sprintf("- %s: %s", item.Key, item.Value))
+	}
+	if len(gapLines) == 0 {
+		gapLines = append(gapLines, "- none")
+	}
+	return fmt.Sprintf(`いまの流れで自分からやる価値があることを見直してください。
+分類は、1. 勝手に整えてよい軽い下ごしらえ 2. 提案だけに留めるべきこと 3. まだ様子見 の 3 つです。
+必要性が薄ければ %s だけを返してください。
+
+initiatives:
+%s
+
+automation candidates:
+%s
+
+open loops:
+%s
+
+context gaps:
+%s`, noReplyToken, strings.Join(initiativeLines, "\n"), strings.Join(candidateLines, "\n"), strings.Join(openLoopLines, "\n"), strings.Join(gapLines, "\n"))
+}
+
+func buildSoftReminderReviewPrompt(reminders []memory.Fact, routines []memory.Fact, recentOwnerMessages []memory.Message) string {
+	reminderLines := make([]string, 0, len(reminders))
+	for _, item := range reminders {
+		reminderLines = append(reminderLines, fmt.Sprintf("- %s: %s", item.Key, item.Value))
+	}
+	if len(reminderLines) == 0 {
+		reminderLines = append(reminderLines, "- none")
+	}
+	routineLines := make([]string, 0, len(routines))
+	for _, item := range routines {
+		routineLines = append(routineLines, fmt.Sprintf("- %s: %s", item.Key, item.Value))
+	}
+	if len(routineLines) == 0 {
+		routineLines = append(routineLines, "- none")
+	}
+	messageLines := make([]string, 0, len(recentOwnerMessages))
+	for _, msg := range recentOwnerMessages {
+		messageLines = append(messageLines, fmt.Sprintf("- [%s/%s] %s", msg.CreatedAt.Format("01-02 15:04"), msg.ChannelName, truncateText(msg.Content, 180)))
+	}
+	if len(messageLines) == 0 {
+		messageLines = append(messageLines, "- none")
+	}
+	return fmt.Sprintf(`曖昧な未来メモを見直して、そろそろ声をかけても自然そうなものだけを短くまとめてください。
+来月、そのうち、あとで、のような曖昧さをそのまま扱い、今はまだ早そうなものは寝かせてください。
+必要性が薄ければ %s だけを返してください。
+
+soft reminders:
+%s
+
+routines:
+%s
+
+recent owner messages:
+%s`, noReplyToken, strings.Join(reminderLines, "\n"), strings.Join(routineLines, "\n"), strings.Join(messageLines, "\n"))
+}
+
+func buildTopicSynthesisReviewPrompt(topics []memory.Fact, recentOwnerMessages []memory.Message, summaries []memory.Summary) string {
+	topicLines := make([]string, 0, len(topics))
+	for _, item := range topics {
+		topicLines = append(topicLines, fmt.Sprintf("- %s: %s", item.Key, item.Value))
+	}
+	if len(topicLines) == 0 {
+		topicLines = append(topicLines, "- none")
+	}
+	messageLines := make([]string, 0, len(recentOwnerMessages))
+	for _, msg := range recentOwnerMessages {
+		messageLines = append(messageLines, fmt.Sprintf("- [%s/%s] %s", msg.CreatedAt.Format("01-02 15:04"), msg.ChannelName, truncateText(msg.Content, 160)))
+	}
+	if len(messageLines) == 0 {
+		messageLines = append(messageLines, "- none")
+	}
+	summaryLines := make([]string, 0, len(summaries))
+	for _, item := range summaries {
+		summaryLines = append(summaryLines, fmt.Sprintf("- %s", truncateText(item.Content, 180)))
+	}
+	if len(summaryLines) == 0 {
+		summaryLines = append(summaryLines, "- none")
+	}
+	return fmt.Sprintf(`散らばった話題を束ね直して、今まとまり始めているテーマがあるかを短くまとめてください。
+単なる日報ではなく、別チャンネルや別の日に散らばった断片が、どの話題へ寄っているかを見る観点で書いてください。
+必要性が薄ければ %s だけを返してください。
+
+topic threads:
+%s
+
+recent owner messages:
+%s
+
+recent weekly summaries:
+%s`, noReplyToken, strings.Join(topicLines, "\n"), strings.Join(messageLines, "\n"), strings.Join(summaryLines, "\n"))
+}
+
+func buildBaselineReviewPrompt(baselines []memory.Fact, deviations []memory.Fact, routines []memory.Fact, recentOwnerMessages []memory.Message) string {
+	baselineLines := make([]string, 0, len(baselines))
+	for _, item := range baselines {
+		baselineLines = append(baselineLines, fmt.Sprintf("- %s: %s", item.Key, item.Value))
+	}
+	if len(baselineLines) == 0 {
+		baselineLines = append(baselineLines, "- none")
+	}
+	deviationLines := make([]string, 0, len(deviations))
+	for _, item := range deviations {
+		deviationLines = append(deviationLines, fmt.Sprintf("- %s: %s", item.Key, item.Value))
+	}
+	if len(deviationLines) == 0 {
+		deviationLines = append(deviationLines, "- none")
+	}
+	routineLines := make([]string, 0, len(routines))
+	for _, item := range routines {
+		routineLines = append(routineLines, fmt.Sprintf("- %s: %s", item.Key, item.Value))
+	}
+	if len(routineLines) == 0 {
+		routineLines = append(routineLines, "- none")
+	}
+	messageLines := make([]string, 0, len(recentOwnerMessages))
+	for _, msg := range recentOwnerMessages {
+		messageLines = append(messageLines, fmt.Sprintf("- [%s/%s] %s", msg.CreatedAt.Format("01-02 15:04"), msg.ChannelName, truncateText(msg.Content, 160)))
+	}
+	if len(messageLines) == 0 {
+		messageLines = append(messageLines, "- none")
+	}
+	return fmt.Sprintf(`いつもと違う気配を見直して、口に出すほどではない観測と、軽く寄り添ったほうがよさそうな違いを分けて短くまとめてください。
+過剰に踏み込みすぎず、見守り寄りの観測として扱ってください。
+必要性が薄ければ %s だけを返してください。
+
+behavior baselines:
+%s
+
+behavior deviations:
+%s
+
+routines:
+%s
+
+recent owner messages:
+%s`, noReplyToken, strings.Join(baselineLines, "\n"), strings.Join(deviationLines, "\n"), strings.Join(routineLines, "\n"), strings.Join(messageLines, "\n"))
 }
 
 func buildChannelCurationPrompt(channels []discordsvc.Channel, profiles []memory.ChannelProfile, activity []memory.ChannelActivity) string {

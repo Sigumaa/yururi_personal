@@ -220,14 +220,38 @@ func (a *App) registerMemoryAutonomyTools(registry *codex.ToolRegistry) {
 		}
 		return textTool("saved"), nil
 	})
+
+	a.registerFactListTool(registry, "memory.list_curiosities", "自分で調べてみる価値がありそうな疑問メモを一覧する", "curiosity", "no curiosities")
+	a.registerFactWriteTool(registry, "memory.write_curiosity", "自分で調べてみたい疑問や引っかかりを curiosity として保存する", "curiosity")
+	a.registerFactCloseTool(registry, "memory.resolve_curiosity", "curiosity を解決済みにして閉じ、必要なら decision に残す", "curiosity", "decision", "curiosity/")
+
+	a.registerFactListTool(registry, "memory.list_agent_goals", "自分で追っている目標ややりたいことを一覧する", "agent_goal", "no agent goals")
+	a.registerFactWriteTool(registry, "memory.write_agent_goal", "自分で追いたい目標や継続方針を agent goal として保存する", "agent_goal")
+	a.registerFactCloseTool(registry, "memory.close_agent_goal", "agent goal を完了や保留にして閉じ、必要なら decision に残す", "agent_goal", "decision", "goal/")
+
+	a.registerFactListTool(registry, "memory.list_soft_reminders", "曖昧な未来表現や、いつか拾いたい予定メモを一覧する", "soft_reminder", "no soft reminders")
+	a.registerFactWriteTool(registry, "memory.write_soft_reminder", "あとで、来月、そのうち、のような曖昧な未来メモを soft reminder として保存する", "soft_reminder")
+	a.registerFactCloseTool(registry, "memory.complete_soft_reminder", "soft reminder を完了として閉じ、必要なら decision に残す", "soft_reminder", "decision", "reminder/")
+
+	a.registerFactListTool(registry, "memory.list_topic_threads", "最近まとまりつつある話題や思考の束を一覧する", "topic_thread", "no topic threads")
+	a.registerFactWriteTool(registry, "memory.write_topic_thread", "散らばったメモや会話を topic thread として束ねて保存する", "topic_thread")
+
+	a.registerFactListTool(registry, "memory.list_initiatives", "自分からやる価値がありそうな整理や提案のメモを一覧する", "initiative", "no initiatives")
+	a.registerFactWriteTool(registry, "memory.write_initiative", "自分からやりたいことや提案候補を initiative として保存する", "initiative")
+
+	a.registerFactListTool(registry, "memory.list_behavior_baselines", "いつもの行動や空気感の基準メモを一覧する", "behavior_baseline", "no behavior baselines")
+	a.registerFactWriteTool(registry, "memory.write_behavior_baseline", "いつもの行動や空気感の基準を behavior baseline として保存する", "behavior_baseline")
+
+	a.registerFactListTool(registry, "memory.list_behavior_deviations", "いつもと違う動きや空気感の観測メモを一覧する", "behavior_deviation", "no behavior deviations")
+	a.registerFactWriteTool(registry, "memory.write_behavior_deviation", "いつもと違う動きや空気感の観測を behavior deviation として保存する", "behavior_deviation")
 }
 
 func (a *App) registerJobAutonomyTools(registry *codex.ToolRegistry) {
 	registry.Register(codex.ToolSpec{
 		Name:        "jobs.schedule_review",
-		Description: "open loop、decision、self improvement、channel role、channel curation の review job を作る",
+		Description: "open loop、curiosity、initiative、soft reminder、topic synthesis、baseline、decision、self improvement、channel role、channel curation の review job を作る",
 		InputSchema: objectSchema(
-			fieldSchema("kind", "string", "open_loop_review, decision_review, self_improvement_review, channel_role_review, channel_curation"),
+			fieldSchema("kind", "string", "open_loop_review, curiosity_review, initiative_review, soft_reminder_review, topic_synthesis_review, baseline_review, decision_review, self_improvement_review, channel_role_review, channel_curation"),
 			fieldSchema("channel_id", "string", "投稿先チャンネル ID"),
 			fieldSchema("schedule", "string", "Go duration。省略時は kind ごとの既定値"),
 		),
@@ -242,6 +266,26 @@ func (a *App) registerJobAutonomyTools(registry *codex.ToolRegistry) {
 		}
 		switch input.Kind {
 		case "open_loop_review":
+			if input.Schedule == "" {
+				input.Schedule = "72h"
+			}
+		case "curiosity_review":
+			if input.Schedule == "" {
+				input.Schedule = "24h"
+			}
+		case "initiative_review":
+			if input.Schedule == "" {
+				input.Schedule = "48h"
+			}
+		case "soft_reminder_review":
+			if input.Schedule == "" {
+				input.Schedule = "24h"
+			}
+		case "topic_synthesis_review":
+			if input.Schedule == "" {
+				input.Schedule = "72h"
+			}
+		case "baseline_review":
 			if input.Schedule == "" {
 				input.Schedule = "72h"
 			}
@@ -269,6 +313,102 @@ func (a *App) registerJobAutonomyTools(registry *codex.ToolRegistry) {
 			return codex.ToolResponse{}, err
 		}
 		return textTool(fmt.Sprintf("scheduled %s", job.ID)), nil
+	})
+}
+
+func (a *App) registerFactListTool(registry *codex.ToolRegistry, toolName string, description string, kind string, emptyText string) {
+	registry.Register(codex.ToolSpec{
+		Name:        toolName,
+		Description: description,
+		InputSchema: objectSchema(fieldSchema("limit", "integer", "取得件数")),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+		var input struct {
+			Limit int `json:"limit"`
+		}
+		_ = json.Unmarshal(raw, &input)
+		items, err := a.store.ListFacts(ctx, kind, input.Limit)
+		if err != nil {
+			return codex.ToolResponse{}, err
+		}
+		if len(items) == 0 {
+			return textTool(emptyText), nil
+		}
+		lines := make([]string, 0, len(items))
+		for _, item := range items {
+			lines = append(lines, fmt.Sprintf("- %s: %s", item.Key, item.Value))
+		}
+		return textTool(strings.Join(lines, "\n")), nil
+	})
+}
+
+func (a *App) registerFactWriteTool(registry *codex.ToolRegistry, toolName string, description string, kind string) {
+	registry.Register(codex.ToolSpec{
+		Name:        toolName,
+		Description: description,
+		InputSchema: objectSchema(
+			fieldSchema("key", "string", "一意キー"),
+			fieldSchema("value", "string", "保存内容"),
+			fieldSchema("source_message_id", "string", "元メッセージ ID"),
+		),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+		var input struct {
+			Key             string `json:"key"`
+			Value           string `json:"value"`
+			SourceMessageID string `json:"source_message_id"`
+		}
+		if err := json.Unmarshal(raw, &input); err != nil {
+			return codex.ToolResponse{}, err
+		}
+		if strings.TrimSpace(input.Key) == "" || strings.TrimSpace(input.Value) == "" {
+			return codex.ToolResponse{}, errors.New("key and value are required")
+		}
+		if err := a.store.UpsertFact(ctx, memory.Fact{
+			Kind:            kind,
+			Key:             input.Key,
+			Value:           input.Value,
+			SourceMessageID: input.SourceMessageID,
+		}); err != nil {
+			return codex.ToolResponse{}, err
+		}
+		return textTool("saved"), nil
+	})
+}
+
+func (a *App) registerFactCloseTool(registry *codex.ToolRegistry, toolName string, description string, kind string, resolutionKind string, resolutionPrefix string) {
+	registry.Register(codex.ToolSpec{
+		Name:        toolName,
+		Description: description,
+		InputSchema: objectSchema(
+			fieldSchema("key", "string", "閉じる項目のキー"),
+			fieldSchema("resolution", "string", "完了や保留の内容。省略可"),
+			fieldSchema("source_message_id", "string", "元メッセージ ID"),
+		),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+		var input struct {
+			Key             string `json:"key"`
+			Resolution      string `json:"resolution"`
+			SourceMessageID string `json:"source_message_id"`
+		}
+		if err := json.Unmarshal(raw, &input); err != nil {
+			return codex.ToolResponse{}, err
+		}
+		if strings.TrimSpace(input.Key) == "" {
+			return codex.ToolResponse{}, errors.New("key is required")
+		}
+		if err := a.store.DeleteFact(ctx, kind, input.Key); err != nil {
+			return codex.ToolResponse{}, err
+		}
+		if strings.TrimSpace(input.Resolution) != "" {
+			if err := a.store.UpsertFact(ctx, memory.Fact{
+				Kind:            resolutionKind,
+				Key:             resolutionPrefix + input.Key,
+				Value:           input.Resolution,
+				SourceMessageID: input.SourceMessageID,
+			}); err != nil {
+				return codex.ToolResponse{}, err
+			}
+		}
+		return textTool("closed"), nil
 	})
 }
 

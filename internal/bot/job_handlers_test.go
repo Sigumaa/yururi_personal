@@ -145,4 +145,61 @@ func TestReviewPromptBuilders(t *testing.T) {
 	if !strings.Contains(rolePrompt, "channel role") || !strings.Contains(rolePrompt, "server snapshot") {
 		t.Fatalf("unexpected role prompt: %s", rolePrompt)
 	}
+
+	curiosityPrompt := buildCuriosityReviewPrompt(
+		[]memory.Fact{{Kind: "curiosity", Key: "rust-runtime", Value: "tokio 以外も気になる"}},
+		[]memory.Fact{{Kind: "open_loop", Key: "agent-flow", Value: "会話しながら tool を回したい"}},
+		[]memory.Message{{ChannelName: "general", Content: "そういえば別 runtime も気になる", CreatedAt: time.Date(2026, 3, 7, 1, 0, 0, 0, time.UTC)}},
+	)
+	for _, want := range []string{"curiosities", "rust-runtime", "open loops"} {
+		if !strings.Contains(curiosityPrompt, want) {
+			t.Fatalf("expected %q in curiosity prompt, got %s", want, curiosityPrompt)
+		}
+	}
+
+	initiativePrompt := buildInitiativeReviewPrompt(
+		[]memory.Fact{{Kind: "initiative", Key: "cleanup", Value: "空間整理を提案したい"}},
+		[]memory.Fact{{Kind: "automation_candidate", Key: "watch", Value: "監視候補が増えている"}},
+		[]memory.Fact{{Kind: "open_loop", Key: "space", Value: "整理のタイミングを見たい"}},
+		[]memory.Fact{{Kind: "context_gap", Key: "sleep", Value: "生活リズムの確信が薄い"}},
+	)
+	for _, want := range []string{"分類は、1. 勝手に整えてよい軽い下ごしらえ", "cleanup", "context gaps"} {
+		if !strings.Contains(initiativePrompt, want) {
+			t.Fatalf("expected %q in initiative prompt, got %s", want, initiativePrompt)
+		}
+	}
+
+	softReminderPrompt := buildSoftReminderReviewPrompt(
+		[]memory.Fact{{Kind: "soft_reminder", Key: "cleanup", Value: "来月くらいに整理したい"}},
+		[]memory.Fact{{Kind: "routine", Key: "morning", Value: "朝に Discord を見る"}},
+		[]memory.Message{{ChannelName: "general", Content: "来月あたりに整理しようかな", CreatedAt: time.Date(2026, 3, 7, 1, 0, 0, 0, time.UTC)}},
+	)
+	for _, want := range []string{"soft reminders", "cleanup", "routines"} {
+		if !strings.Contains(softReminderPrompt, want) {
+			t.Fatalf("expected %q in soft reminder prompt, got %s", want, softReminderPrompt)
+		}
+	}
+
+	topicPrompt := buildTopicSynthesisReviewPrompt(
+		[]memory.Fact{{Kind: "topic_thread", Key: "auth", Value: "OAuth と認証の断片"}},
+		[]memory.Message{{ChannelName: "reading", Content: "OAuth 解説記事よかった", CreatedAt: time.Date(2026, 3, 7, 1, 0, 0, 0, time.UTC)}},
+		[]memory.Summary{{Content: "今週は認証まわりが増えていた"}},
+	)
+	for _, want := range []string{"topic threads", "auth", "recent weekly summaries"} {
+		if !strings.Contains(topicPrompt, want) {
+			t.Fatalf("expected %q in topic prompt, got %s", want, topicPrompt)
+		}
+	}
+
+	baselinePrompt := buildBaselineReviewPrompt(
+		[]memory.Fact{{Kind: "behavior_baseline", Key: "late-night", Value: "普段は23時台に静か"}},
+		[]memory.Fact{{Kind: "behavior_deviation", Key: "late-night-shift", Value: "今日は深夜も活動している"}},
+		[]memory.Fact{{Kind: "routine", Key: "night", Value: "夜は静かめ"}},
+		[]memory.Message{{ChannelName: "general", Content: "まだ起きてる", CreatedAt: time.Date(2026, 3, 7, 1, 0, 0, 0, time.UTC)}},
+	)
+	for _, want := range []string{"behavior baselines", "behavior deviations", "late-night-shift"} {
+		if !strings.Contains(baselinePrompt, want) {
+			t.Fatalf("expected %q in baseline prompt, got %s", want, baselinePrompt)
+		}
+	}
 }

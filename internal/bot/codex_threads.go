@@ -126,6 +126,15 @@ func (a *App) runThreadInputTurn(ctx context.Context, threadID string, input []c
 	return a.codex.RunInputTurn(ctx, threadID, input)
 }
 
+func (a *App) runThreadInputTurnInteractive(ctx context.Context, threadID string, input []codex.InputItem) (string, error) {
+	lock := a.threadLock(threadID)
+	a.logger.Debug("thread lock wait", "thread_id", threadID, "mode", "input-interactive", "input_preview", previewJSON(input, 800))
+	lock.Lock()
+	defer lock.Unlock()
+	a.logger.Debug("thread lock acquired", "thread_id", threadID, "mode", "input-interactive")
+	return a.codex.RunInputTurnWithOptions(ctx, threadID, input, codex.TurnOptions{Effort: "low"})
+}
+
 func (a *App) runThreadJSONTurn(ctx context.Context, threadID string, prompt string, schema map[string]any) (string, error) {
 	lock := a.threadLock(threadID)
 	a.logger.Debug("thread lock wait", "thread_id", threadID, "mode", "json", "prompt_preview", previewText(prompt, 800), "schema_preview", previewJSON(schema, 600))

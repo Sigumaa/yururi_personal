@@ -444,7 +444,7 @@ func (a *App) registerMemoryExtraTools(registry *codex.ToolRegistry) {
 
 	registry.Register(codex.ToolSpec{
 		Name:        "memory.recall_briefing",
-		Description: "最近の owner 発話、routine、open loop、promise、reflection、growth、decision、gap、misfire をまとめて引く",
+		Description: "最近の owner 発話、routine、open loop、promise、curiosity、goal、soft reminder、topic、initiative、reflection、growth、decision、gap、misfire、baseline をまとめて引く",
 		InputSchema: objectSchema(fieldSchema("limit", "integer", "各セクションのおおよその件数")),
 	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
 		var input struct {
@@ -471,6 +471,26 @@ func (a *App) registerMemoryExtraTools(registry *codex.ToolRegistry) {
 		if err != nil {
 			return codex.ToolResponse{}, err
 		}
+		curiosities, err := a.store.ListFacts(ctx, "curiosity", input.Limit)
+		if err != nil {
+			return codex.ToolResponse{}, err
+		}
+		agentGoals, err := a.store.ListFacts(ctx, "agent_goal", input.Limit)
+		if err != nil {
+			return codex.ToolResponse{}, err
+		}
+		softReminders, err := a.store.ListFacts(ctx, "soft_reminder", input.Limit)
+		if err != nil {
+			return codex.ToolResponse{}, err
+		}
+		topicThreads, err := a.store.ListFacts(ctx, "topic_thread", input.Limit)
+		if err != nil {
+			return codex.ToolResponse{}, err
+		}
+		initiatives, err := a.store.ListFacts(ctx, "initiative", input.Limit)
+		if err != nil {
+			return codex.ToolResponse{}, err
+		}
 		reflections, err := a.store.RecentSummaries(ctx, "reflection", input.Limit)
 		if err != nil {
 			return codex.ToolResponse{}, err
@@ -488,6 +508,14 @@ func (a *App) registerMemoryExtraTools(registry *codex.ToolRegistry) {
 			return codex.ToolResponse{}, err
 		}
 		misfires, err := a.store.ListFacts(ctx, "misfire", input.Limit)
+		if err != nil {
+			return codex.ToolResponse{}, err
+		}
+		baselines, err := a.store.ListFacts(ctx, "behavior_baseline", input.Limit)
+		if err != nil {
+			return codex.ToolResponse{}, err
+		}
+		deviations, err := a.store.ListFacts(ctx, "behavior_deviation", input.Limit)
 		if err != nil {
 			return codex.ToolResponse{}, err
 		}
@@ -524,6 +552,51 @@ func (a *App) registerMemoryExtraTools(registry *codex.ToolRegistry) {
 			lines = append(lines, "- none")
 		} else {
 			for _, item := range pendingPromises {
+				lines = append(lines, fmt.Sprintf("- %s: %s", item.Key, truncateText(item.Value, 220)))
+			}
+		}
+
+		lines = append(lines, "curiosities:")
+		if len(curiosities) == 0 {
+			lines = append(lines, "- none")
+		} else {
+			for _, item := range curiosities {
+				lines = append(lines, fmt.Sprintf("- %s: %s", item.Key, truncateText(item.Value, 220)))
+			}
+		}
+
+		lines = append(lines, "agent_goals:")
+		if len(agentGoals) == 0 {
+			lines = append(lines, "- none")
+		} else {
+			for _, item := range agentGoals {
+				lines = append(lines, fmt.Sprintf("- %s: %s", item.Key, truncateText(item.Value, 220)))
+			}
+		}
+
+		lines = append(lines, "soft_reminders:")
+		if len(softReminders) == 0 {
+			lines = append(lines, "- none")
+		} else {
+			for _, item := range softReminders {
+				lines = append(lines, fmt.Sprintf("- %s: %s", item.Key, truncateText(item.Value, 220)))
+			}
+		}
+
+		lines = append(lines, "topic_threads:")
+		if len(topicThreads) == 0 {
+			lines = append(lines, "- none")
+		} else {
+			for _, item := range topicThreads {
+				lines = append(lines, fmt.Sprintf("- %s: %s", item.Key, truncateText(item.Value, 220)))
+			}
+		}
+
+		lines = append(lines, "initiatives:")
+		if len(initiatives) == 0 {
+			lines = append(lines, "- none")
+		} else {
+			for _, item := range initiatives {
 				lines = append(lines, fmt.Sprintf("- %s: %s", item.Key, truncateText(item.Value, 220)))
 			}
 		}
@@ -569,6 +642,24 @@ func (a *App) registerMemoryExtraTools(registry *codex.ToolRegistry) {
 			lines = append(lines, "- none")
 		} else {
 			for _, item := range misfires {
+				lines = append(lines, fmt.Sprintf("- %s: %s", item.Key, truncateText(item.Value, 220)))
+			}
+		}
+
+		lines = append(lines, "behavior_baselines:")
+		if len(baselines) == 0 {
+			lines = append(lines, "- none")
+		} else {
+			for _, item := range baselines {
+				lines = append(lines, fmt.Sprintf("- %s: %s", item.Key, truncateText(item.Value, 220)))
+			}
+		}
+
+		lines = append(lines, "behavior_deviations:")
+		if len(deviations) == 0 {
+			lines = append(lines, "- none")
+		} else {
+			for _, item := range deviations {
 				lines = append(lines, fmt.Sprintf("- %s: %s", item.Key, truncateText(item.Value, 220)))
 			}
 		}

@@ -90,6 +90,10 @@ type turnResult struct {
 	Error error
 }
 
+type TurnOptions struct {
+	Effort string
+}
+
 var ErrTurnInterrupted = errors.New("turn interrupted")
 
 func NewClient(cfg config.Config, paths config.Paths, logger *slog.Logger, tools *ToolRegistry) *Client {
@@ -327,15 +331,19 @@ func (c *Client) ListApps(ctx context.Context) ([]AppEntry, error) {
 }
 
 func (c *Client) RunTurn(ctx context.Context, threadID string, prompt string) (string, error) {
-	return c.runTurn(ctx, threadID, []InputItem{TextInput(prompt)}, nil)
+	return c.runTurn(ctx, threadID, []InputItem{TextInput(prompt)}, nil, TurnOptions{})
 }
 
 func (c *Client) RunInputTurn(ctx context.Context, threadID string, input []InputItem) (string, error) {
-	return c.runTurn(ctx, threadID, input, nil)
+	return c.runTurn(ctx, threadID, input, nil, TurnOptions{})
+}
+
+func (c *Client) RunInputTurnWithOptions(ctx context.Context, threadID string, input []InputItem, opts TurnOptions) (string, error) {
+	return c.runTurn(ctx, threadID, input, nil, opts)
 }
 
 func (c *Client) RunJSONTurn(ctx context.Context, threadID string, prompt string, outputSchema map[string]any) (string, error) {
-	return c.runTurn(ctx, threadID, []InputItem{TextInput(prompt)}, outputSchema)
+	return c.runTurn(ctx, threadID, []InputItem{TextInput(prompt)}, outputSchema, TurnOptions{})
 }
 
 func (c *Client) InterruptTurn(ctx context.Context, threadID string, turnID string) error {
@@ -375,32 +383,13 @@ func (c *Client) InterruptActiveTurn(ctx context.Context, threadID string) (stri
 	return active.turnID, true, nil
 }
 
-func (c *Client) runTurn(ctx context.Context, threadID string, input []InputItem, outputSchema map[string]any) (string, error) {
+func (c *Client) runTurn(ctx context.Context, threadID string, input []InputItem, outputSchema map[string]any, opts TurnOptions) (string, error) {
 	if err := c.Start(ctx); err != nil {
 		return "", err
 	}
 	c.logger.Info("turn start", "thread_id", threadID, "input_count", len(input), "json_schema", outputSchema != nil)
 	c.logger.Debug("turn input", "thread_id", threadID, "input_preview", previewJSON(input, 1800), "schema_preview", previewJSON(outputSchema, 800))
-	params := map[string]any{
-		"threadId":       threadID,
-		"input":          input,
-		"approvalPolicy": c.cfg.Codex.ApprovalPolicy,
-		"sandboxPolicy": map[string]any{
-			"type": "dangerFullAccess",
-		},
-	}
-	if outputSchema != nil {
-		params["outputSchema"] = outputSchema
-	}
-	if c.cfg.Codex.Model != "" {
-		params["model"] = c.cfg.Codex.Model
-	}
-	if c.cfg.Codex.ReasoningSummary != "" {
-		params["summary"] = c.cfg.Codex.ReasoningSummary
-	}
-	if c.cfg.Codex.ReasoningEffort != "" {
-		params["effort"] = c.cfg.Codex.ReasoningEffort
-	}
+	params := c.turnParams(threadID, input, outputSchema, opts)
 
 	var response struct {
 		Turn struct {
@@ -453,6 +442,34 @@ func (c *Client) runTurn(ctx context.Context, threadID string, input []InputItem
 		}
 		return strings.TrimSpace(result.Text), nil
 	}
+}
+
+func (c *Client) turnParams(threadID string, input []InputItem, outputSchema map[string]any, opts TurnOptions) map[string]any {
+	params := map[string]any{
+		"threadId":       threadID,
+		"input":          input,
+		"approvalPolicy": c.cfg.Codex.ApprovalPolicy,
+		"sandboxPolicy": map[string]any{
+			"type": "dangerFullAccess",
+		},
+	}
+	if outputSchema != nil {
+		params["outputSchema"] = outputSchema
+	}
+	if c.cfg.Codex.Model != "" {
+		params["model"] = c.cfg.Codex.Model
+	}
+	if c.cfg.Codex.ReasoningSummary != "" {
+		params["summary"] = c.cfg.Codex.ReasoningSummary
+	}
+	effort := strings.TrimSpace(opts.Effort)
+	if effort == "" {
+		effort = c.cfg.Codex.ReasoningEffort
+	}
+	if effort != "" {
+		params["effort"] = effort
+	}
+	return params
 }
 
 func (c *Client) call(ctx context.Context, method string, params any, out any) error {
@@ -569,11 +586,16 @@ func (c *Client) readLoop() {
 func (c *Client) handleServerRequest(rawID json.RawMessage, method string, params json.RawMessage) {
 	idValue := decodeIDValue(rawID)
 	write := func(result any) {
-		_ = c.writeJSON(map[string]any{
+		c.logger.Debug("rpc server response start", "method", method, "id", previewText(string(rawID), 120), "result_preview", previewJSON(result, 1200))
+		if err := c.writeJSON(map[string]any{
 			"jsonrpc": "2.0",
 			"id":      idValue,
 			"result":  result,
-		})
+		}); err != nil {
+			c.logger.Error("rpc server response failed", "method", method, "id", previewText(string(rawID), 120), "error", err)
+			return
+		}
+		c.logger.Debug("rpc server response completed", "method", method, "id", previewText(string(rawID), 120))
 	}
 
 	switch method {

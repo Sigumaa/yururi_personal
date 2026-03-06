@@ -145,6 +145,11 @@ func TestConversationPromptAllowsDirectToolsAndMultiReplies(t *testing.T) {
 	if !strings.Contains(prompt, "current message の画像添付はこの turn にすでに載っている") {
 		t.Fatalf("expected direct image input guidance, got %s", prompt)
 	}
+	for _, want := range []string{"curiosity", "agent goal", "soft reminder", "topic thread", "initiative", "behavior baseline", "behavior deviation"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("expected extended memory hint %q, got %s", want, prompt)
+		}
+	}
 }
 
 func TestAutonomyPulsePromptAllowsSilenceAndAction(t *testing.T) {
@@ -156,6 +161,13 @@ func TestAutonomyPulsePromptAllowsSilenceAndAction(t *testing.T) {
 		nil,
 		[]memory.Message{{ChannelName: "general", Content: "open loop を拾ってほしい"}},
 		[]memory.Fact{{Key: "agent-flow", Value: "会話しながら tool を回したい"}},
+		[]memory.Fact{{Key: "runtime", Value: "tokio 以外の runtime が気になる"}},
+		[]memory.Fact{{Key: "space", Value: "空間整理を続けたい"}},
+		[]memory.Fact{{Key: "cleanup", Value: "来月くらいに整理したい"}},
+		[]memory.Fact{{Key: "auth", Value: "OAuth の断片が増えている"}},
+		[]memory.Fact{{Key: "proposal", Value: "監視専用の場所を提案したい"}},
+		[]memory.Fact{{Key: "night", Value: "23時台に静かになりやすい"}},
+		[]memory.Fact{{Key: "late", Value: "今日は深夜でも話している"}},
 		[]memory.Summary{{Content: "昨日は途中で止まりがちだった"}},
 		[]memory.Summary{{Content: "batch tool を増やした"}},
 		[]memory.Fact{{Key: "autonomy-mode", Value: "前置きだけで止まらない"}},
@@ -175,6 +187,11 @@ func TestAutonomyPulsePromptAllowsSilenceAndAction(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "open loops") || !strings.Contains(prompt, "agent-flow") {
 		t.Fatalf("expected open loop context, got %s", prompt)
+	}
+	for _, want := range []string{"curiosities", "agent goals", "soft reminders", "topic threads", "initiatives", "behavior baselines", "behavior deviations"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("expected %q in autonomy prompt, got %s", want, prompt)
+		}
 	}
 	if !strings.Contains(prompt, "recent owner messages") {
 		t.Fatalf("expected owner message context, got %s", prompt)

@@ -85,4 +85,9 @@ func TestBuildCapabilitiesContextListsRealCapabilities(t *testing.T) {
 	if !strings.Contains(raw, "autonomy pulse") {
 		t.Fatalf("expected autonomy pulse note, got %s", raw)
 	}
+	for _, want := range []string{"curiosity", "agent goal", "soft reminder", "topic thread", "initiative", "behavior baseline", "behavior deviation", "curiosity review", "topic synthesis review"} {
+		if !strings.Contains(raw, want) {
+			t.Fatalf("expected %q in capabilities context, got %s", want, raw)
+		}
+	}
 }

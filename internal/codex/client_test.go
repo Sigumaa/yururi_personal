@@ -176,3 +176,23 @@ func TestDecodeIDValuePreservesJSONRPCIDType(t *testing.T) {
 		})
 	}
 }
+
+func TestTurnParamsAllowEffortOverride(t *testing.T) {
+	client := NewClient(config.Config{
+		AppName: "yururi",
+		Codex: config.CodexConfig{
+			ApprovalPolicy:   "never",
+			SandboxMode:      "danger-full-access",
+			ReasoningEffort:  "medium",
+			ReasoningSummary: "concise",
+		},
+	}, config.Paths{Workspace: "/tmp/workspace"}, slog.New(slog.NewTextHandler(io.Discard, nil)), NewToolRegistry())
+
+	params := client.turnParams("thread-1", []InputItem{TextInput("hello")}, nil, TurnOptions{Effort: "low"})
+	if got, _ := params["effort"].(string); got != "low" {
+		t.Fatalf("unexpected effort override: %#v", params["effort"])
+	}
+	if got, _ := params["summary"].(string); got != "concise" {
+		t.Fatalf("expected summary to stay inherited, got %#v", params["summary"])
+	}
+}

@@ -24,7 +24,7 @@ func (a *App) runConversationTurn(ctx context.Context, threadID string, msg memo
 		input = append(input, imageInputs...)
 		a.logger.Debug("conversation image inputs ready", "thread_id", threadID, "channel", msg.ChannelName, "message_id", msg.ID, "count", len(imageInputs), "notes", strings.Join(imageNotes, " | "))
 	}
-	raw, err := a.runThreadInputTurn(ctx, threadID, input)
+	raw, err := a.runThreadInputTurnInteractive(ctx, threadID, input)
 	if err != nil {
 		return "", fmt.Errorf("run conversation turn: %w", err)
 	}
@@ -83,10 +83,35 @@ func (a *App) handleAutonomyPulseJob(ctx context.Context, job jobs.Job) (jobs.Re
 	summaries, _ := a.store.RecentSummaries(ctx, "daily", 2)
 	ownerMessages, _ := a.store.RecentMessagesByAuthor(ctx, a.cfg.Discord.OwnerUserID, "", 8)
 	openLoops, _ := a.store.ListFacts(ctx, "open_loop", 8)
+	curiosities, _ := a.store.ListFacts(ctx, "curiosity", 8)
+	goals, _ := a.store.ListFacts(ctx, "agent_goal", 8)
+	reminders, _ := a.store.ListFacts(ctx, "soft_reminder", 8)
+	topics, _ := a.store.ListFacts(ctx, "topic_thread", 8)
+	initiatives, _ := a.store.ListFacts(ctx, "initiative", 8)
+	baselines, _ := a.store.ListFacts(ctx, "behavior_baseline", 8)
+	deviations, _ := a.store.ListFacts(ctx, "behavior_deviation", 8)
 	reflections, _ := a.store.RecentSummaries(ctx, "reflection", 3)
 	growth, _ := a.store.RecentSummaries(ctx, "growth", 3)
 	decisions, _ := a.store.ListFacts(ctx, "decision", 6)
-	prompt := buildAutonomyPulsePrompt(targetChannelID, targetChannelName, latestPresence, recentActivity, summaries, ownerMessages, openLoops, reflections, growth, decisions)
+	prompt := buildAutonomyPulsePrompt(
+		targetChannelID,
+		targetChannelName,
+		latestPresence,
+		recentActivity,
+		summaries,
+		ownerMessages,
+		openLoops,
+		curiosities,
+		goals,
+		reminders,
+		topics,
+		initiatives,
+		baselines,
+		deviations,
+		reflections,
+		growth,
+		decisions,
+	)
 	a.logger.Info("autonomy pulse start", "job_id", job.ID, "thread_id", session.ID, "target_channel_id", targetChannelID, "prompt_bytes", len(prompt))
 	a.logger.Debug("autonomy pulse prompt", "job_id", job.ID, "thread_id", session.ID, "prompt_preview", previewText(prompt, 1800))
 	raw, err := a.runThreadTurn(ctx, session.ID, prompt)

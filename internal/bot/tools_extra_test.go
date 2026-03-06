@@ -163,6 +163,101 @@ func TestMemoryOpenLoopReflectionGrowthAndDecisionTools(t *testing.T) {
 	}
 }
 
+func TestExtendedMemoryFoundationTools(t *testing.T) {
+	store, err := memory.Open(filepath.Join(t.TempDir(), "yururi.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	registry := codex.NewToolRegistry()
+	app := &App{
+		cfg:    config.Config{Discord: config.DiscordConfig{OwnerUserID: "owner"}},
+		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		loc:    time.UTC,
+		store:  store,
+	}
+	app.registerAutonomyTools(registry)
+
+	writeAndAssert := func(writeTool string, listTool string, key string, value string) {
+		if _, err := registry.Call(ctx, writeTool, mustJSONRaw(t, map[string]any{
+			"key":   key,
+			"value": value,
+		})); err != nil {
+			t.Fatalf("%s: %v", writeTool, err)
+		}
+		response, err := registry.Call(ctx, listTool, mustJSONRaw(t, map[string]any{"limit": 8}))
+		if err != nil {
+			t.Fatalf("%s: %v", listTool, err)
+		}
+		if !strings.Contains(response.ContentItems[0].Text, key) || !strings.Contains(response.ContentItems[0].Text, value) {
+			t.Fatalf("unexpected list response for %s: %#v", listTool, response.ContentItems)
+		}
+	}
+
+	writeAndAssert("memory.write_curiosity", "memory.list_curiosities", "rust-runtime", "tokio 以外も軽く見たい")
+	writeAndAssert("memory.write_agent_goal", "memory.list_agent_goals", "space-gardener", "サーバー構造の美意識を育てたい")
+	writeAndAssert("memory.write_soft_reminder", "memory.list_soft_reminders", "channel-cleanup", "来月くらいにチャンネル整理したい")
+	writeAndAssert("memory.write_topic_thread", "memory.list_topic_threads", "oauth", "認証まわりの断片が散らばっている")
+	writeAndAssert("memory.write_initiative", "memory.list_initiatives", "workshop", "自分用の作業チャンネル候補を見たい")
+	writeAndAssert("memory.write_behavior_baseline", "memory.list_behavior_baselines", "late-night", "普段は23時台に静かになる")
+	writeAndAssert("memory.write_behavior_deviation", "memory.list_behavior_deviations", "late-night-shift", "今日は深夜でも話している")
+
+	if _, err := registry.Call(ctx, "memory.resolve_curiosity", mustJSONRaw(t, map[string]any{
+		"key":        "rust-runtime",
+		"resolution": "smol と glommio まで見れば十分そう",
+	})); err != nil {
+		t.Fatalf("resolve curiosity: %v", err)
+	}
+	if _, err := registry.Call(ctx, "memory.close_agent_goal", mustJSONRaw(t, map[string]any{
+		"key":        "space-gardener",
+		"resolution": "空間レビュー基盤を追加した",
+	})); err != nil {
+		t.Fatalf("close agent goal: %v", err)
+	}
+	if _, err := registry.Call(ctx, "memory.complete_soft_reminder", mustJSONRaw(t, map[string]any{
+		"key":        "channel-cleanup",
+		"resolution": "整理時期を相談し直す",
+	})); err != nil {
+		t.Fatalf("complete soft reminder: %v", err)
+	}
+
+	for _, pair := range []struct {
+		tool string
+		key  string
+	}{
+		{tool: "memory.list_curiosities", key: "rust-runtime"},
+		{tool: "memory.list_agent_goals", key: "space-gardener"},
+		{tool: "memory.list_soft_reminders", key: "channel-cleanup"},
+	} {
+		response, err := registry.Call(ctx, pair.tool, mustJSONRaw(t, map[string]any{"limit": 8}))
+		if err != nil {
+			t.Fatalf("%s after close: %v", pair.tool, err)
+		}
+		if strings.Contains(response.ContentItems[0].Text, pair.key) {
+			t.Fatalf("expected %s to be closed, got %#v", pair.key, response.ContentItems)
+		}
+	}
+
+	decisions, err := store.ListFacts(ctx, "decision", 16)
+	if err != nil {
+		t.Fatalf("list decisions: %v", err)
+	}
+	for _, want := range []string{"curiosity/rust-runtime", "goal/space-gardener", "reminder/channel-cleanup"} {
+		var found bool
+		for _, decision := range decisions {
+			if decision.Key == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("expected decision %q, got %#v", want, decisions)
+		}
+	}
+}
+
 func TestToolSearchAndDescribeTools(t *testing.T) {
 	store, err := memory.Open(filepath.Join(t.TempDir(), "yururi.db"))
 	if err != nil {
@@ -235,6 +330,27 @@ func TestMemoryRecallBriefingTool(t *testing.T) {
 	if err := store.UpsertFact(ctx, memory.Fact{Kind: "decision", Key: "tone", Value: "溺愛寄りにする"}); err != nil {
 		t.Fatalf("upsert decision: %v", err)
 	}
+	if err := store.UpsertFact(ctx, memory.Fact{Kind: "curiosity", Key: "tokio", Value: "ほかの async runtime も気になる"}); err != nil {
+		t.Fatalf("upsert curiosity: %v", err)
+	}
+	if err := store.UpsertFact(ctx, memory.Fact{Kind: "agent_goal", Key: "space", Value: "サーバー構造を整えたい"}); err != nil {
+		t.Fatalf("upsert agent goal: %v", err)
+	}
+	if err := store.UpsertFact(ctx, memory.Fact{Kind: "soft_reminder", Key: "cleanup", Value: "来月くらいに整理したい"}); err != nil {
+		t.Fatalf("upsert soft reminder: %v", err)
+	}
+	if err := store.UpsertFact(ctx, memory.Fact{Kind: "topic_thread", Key: "auth", Value: "OAuth と認証周りの断片"}); err != nil {
+		t.Fatalf("upsert topic thread: %v", err)
+	}
+	if err := store.UpsertFact(ctx, memory.Fact{Kind: "initiative", Key: "watchers", Value: "監視候補を整えたい"}); err != nil {
+		t.Fatalf("upsert initiative: %v", err)
+	}
+	if err := store.UpsertFact(ctx, memory.Fact{Kind: "behavior_baseline", Key: "sleep", Value: "普段は23時台に静か"}); err != nil {
+		t.Fatalf("upsert behavior baseline: %v", err)
+	}
+	if err := store.UpsertFact(ctx, memory.Fact{Kind: "behavior_deviation", Key: "late", Value: "今日は夜更かし気味"}); err != nil {
+		t.Fatalf("upsert behavior deviation: %v", err)
+	}
 	if err := store.UpsertFact(ctx, memory.Fact{Kind: "context_gap", Key: "sleep-schedule", Value: "就寝時間帯の確信がない"}); err != nil {
 		t.Fatalf("upsert context gap: %v", err)
 	}
@@ -264,7 +380,7 @@ func TestMemoryRecallBriefingTool(t *testing.T) {
 		t.Fatalf("memory.recall_briefing: %v", err)
 	}
 	text := response.ContentItems[0].Text
-	for _, want := range []string{"owner_messages:", "routines:", "open_loops:", "pending_promises:", "reflections:", "growth:", "decisions:", "context_gaps:", "misfires:", "autonomy", "溺愛寄り", "promise-only"} {
+	for _, want := range []string{"owner_messages:", "routines:", "open_loops:", "pending_promises:", "curiosities:", "agent_goals:", "soft_reminders:", "topic_threads:", "initiatives:", "behavior_baselines:", "behavior_deviations:", "reflections:", "growth:", "decisions:", "context_gaps:", "misfires:", "autonomy", "溺愛寄り", "promise-only", "OAuth"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("expected %q in briefing, got %s", want, text)
 		}
@@ -560,16 +676,30 @@ func TestAutomationCandidateAndReviewSchedulingTools(t *testing.T) {
 	})); err != nil {
 		t.Fatalf("schedule review: %v", err)
 	}
+	for _, kind := range []string{"curiosity_review", "initiative_review", "soft_reminder_review", "topic_synthesis_review", "baseline_review"} {
+		if _, err := registry.Call(ctx, "jobs.schedule_review", mustJSONRaw(t, map[string]any{
+			"kind":       kind,
+			"channel_id": "c-review",
+		})); err != nil {
+			t.Fatalf("schedule %s: %v", kind, err)
+		}
+	}
 
 	allJobs, err := store.DueJobs(ctx, time.Now().UTC().Add(365*24*time.Hour), 16)
 	if err != nil {
 		t.Fatalf("list jobs: %v", err)
 	}
 	var found bool
+	foundKinds := map[string]bool{}
 	for _, job := range allJobs {
 		if job.Kind == "channel_curation" && job.ChannelID == "c-review" {
 			found = true
-			break
+		}
+		foundKinds[job.Kind] = true
+	}
+	for _, kind := range []string{"curiosity_review", "initiative_review", "soft_reminder_review", "topic_synthesis_review", "baseline_review"} {
+		if !foundKinds[kind] {
+			t.Fatalf("expected %s job, got %#v", kind, allJobs)
 		}
 	}
 	if !found {
