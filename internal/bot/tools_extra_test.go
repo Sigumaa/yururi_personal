@@ -203,6 +203,9 @@ func TestExtendedMemoryFoundationTools(t *testing.T) {
 	writeAndAssert("memory.write_initiative", "memory.list_initiatives", "workshop", "自分用の作業チャンネル候補を見たい")
 	writeAndAssert("memory.write_behavior_baseline", "memory.list_behavior_baselines", "late-night", "普段は23時台に静かになる")
 	writeAndAssert("memory.write_behavior_deviation", "memory.list_behavior_deviations", "late-night-shift", "今日は深夜でも話している")
+	writeAndAssert("memory.write_learned_policy", "memory.list_learned_policies", "notify-lightly", "軽い通知は一言で済ませる")
+	writeAndAssert("memory.write_workspace_note", "memory.list_workspace_notes", "workshop-draft", "自分用の作業場所をどう作るかの下書き")
+	writeAndAssert("memory.write_proposal_boundary", "memory.list_proposal_boundaries", "space-boundary", "チャンネル整理案は先に作って、変更は提案に留める")
 
 	if _, err := registry.Call(ctx, "memory.resolve_curiosity", mustJSONRaw(t, map[string]any{
 		"key":        "rust-runtime",
@@ -222,6 +225,18 @@ func TestExtendedMemoryFoundationTools(t *testing.T) {
 	})); err != nil {
 		t.Fatalf("complete soft reminder: %v", err)
 	}
+	if _, err := registry.Call(ctx, "memory.retire_learned_policy", mustJSONRaw(t, map[string]any{
+		"key":        "notify-lightly",
+		"resolution": "通知ポリシーは learned policy review で見直す",
+	})); err != nil {
+		t.Fatalf("retire learned policy: %v", err)
+	}
+	if _, err := registry.Call(ctx, "memory.retire_proposal_boundary", mustJSONRaw(t, map[string]any{
+		"key":        "space-boundary",
+		"resolution": "境界メモは proposal boundary review で見直す",
+	})); err != nil {
+		t.Fatalf("retire proposal boundary: %v", err)
+	}
 
 	for _, pair := range []struct {
 		tool string
@@ -230,6 +245,8 @@ func TestExtendedMemoryFoundationTools(t *testing.T) {
 		{tool: "memory.list_curiosities", key: "rust-runtime"},
 		{tool: "memory.list_agent_goals", key: "space-gardener"},
 		{tool: "memory.list_soft_reminders", key: "channel-cleanup"},
+		{tool: "memory.list_learned_policies", key: "notify-lightly"},
+		{tool: "memory.list_proposal_boundaries", key: "space-boundary"},
 	} {
 		response, err := registry.Call(ctx, pair.tool, mustJSONRaw(t, map[string]any{"limit": 8}))
 		if err != nil {
@@ -244,7 +261,7 @@ func TestExtendedMemoryFoundationTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list decisions: %v", err)
 	}
-	for _, want := range []string{"curiosity/rust-runtime", "goal/space-gardener", "reminder/channel-cleanup"} {
+	for _, want := range []string{"curiosity/rust-runtime", "goal/space-gardener", "reminder/channel-cleanup", "policy/notify-lightly", "boundary/space-boundary"} {
 		var found bool
 		for _, decision := range decisions {
 			if decision.Key == want {
@@ -345,11 +362,23 @@ func TestMemoryRecallBriefingTool(t *testing.T) {
 	if err := store.UpsertFact(ctx, memory.Fact{Kind: "initiative", Key: "watchers", Value: "監視候補を整えたい"}); err != nil {
 		t.Fatalf("upsert initiative: %v", err)
 	}
+	if err := store.UpsertFact(ctx, memory.Fact{Kind: "automation_candidate", Key: "channel-curation", Value: "空間整理の依頼が繰り返されるので補助を増やしたい"}); err != nil {
+		t.Fatalf("upsert automation candidate: %v", err)
+	}
 	if err := store.UpsertFact(ctx, memory.Fact{Kind: "behavior_baseline", Key: "sleep", Value: "普段は23時台に静か"}); err != nil {
 		t.Fatalf("upsert behavior baseline: %v", err)
 	}
 	if err := store.UpsertFact(ctx, memory.Fact{Kind: "behavior_deviation", Key: "late", Value: "今日は夜更かし気味"}); err != nil {
 		t.Fatalf("upsert behavior deviation: %v", err)
+	}
+	if err := store.UpsertFact(ctx, memory.Fact{Kind: "learned_policy", Key: "notify-lightly", Value: "軽い通知は一言で済ませる"}); err != nil {
+		t.Fatalf("upsert learned policy: %v", err)
+	}
+	if err := store.UpsertFact(ctx, memory.Fact{Kind: "workspace_note", Key: "workshop-draft", Value: "自分用の作業チャンネル案を考えている"}); err != nil {
+		t.Fatalf("upsert workspace note: %v", err)
+	}
+	if err := store.UpsertFact(ctx, memory.Fact{Kind: "proposal_boundary", Key: "space-boundary", Value: "整理案は先に作って、変更は提案に留める"}); err != nil {
+		t.Fatalf("upsert proposal boundary: %v", err)
 	}
 	if err := store.UpsertFact(ctx, memory.Fact{Kind: "context_gap", Key: "sleep-schedule", Value: "就寝時間帯の確信がない"}); err != nil {
 		t.Fatalf("upsert context gap: %v", err)
@@ -380,7 +409,7 @@ func TestMemoryRecallBriefingTool(t *testing.T) {
 		t.Fatalf("memory.recall_briefing: %v", err)
 	}
 	text := response.ContentItems[0].Text
-	for _, want := range []string{"owner_messages:", "routines:", "open_loops:", "pending_promises:", "curiosities:", "agent_goals:", "soft_reminders:", "topic_threads:", "initiatives:", "behavior_baselines:", "behavior_deviations:", "reflections:", "growth:", "decisions:", "context_gaps:", "misfires:", "autonomy", "溺愛寄り", "promise-only", "OAuth"} {
+	for _, want := range []string{"owner_messages:", "routines:", "open_loops:", "pending_promises:", "curiosities:", "agent_goals:", "soft_reminders:", "topic_threads:", "initiatives:", "automation_candidates:", "learned_policies:", "workspace_notes:", "proposal_boundaries:", "behavior_baselines:", "behavior_deviations:", "reflections:", "growth:", "decisions:", "context_gaps:", "misfires:", "autonomy", "溺愛寄り", "promise-only", "OAuth", "notify-lightly", "workshop-draft", "space-boundary"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("expected %q in briefing, got %s", want, text)
 		}
@@ -676,7 +705,7 @@ func TestAutomationCandidateAndReviewSchedulingTools(t *testing.T) {
 	})); err != nil {
 		t.Fatalf("schedule review: %v", err)
 	}
-	for _, kind := range []string{"curiosity_review", "initiative_review", "soft_reminder_review", "topic_synthesis_review", "baseline_review"} {
+	for _, kind := range []string{"curiosity_review", "initiative_review", "soft_reminder_review", "topic_synthesis_review", "baseline_review", "policy_synthesis_review", "workspace_review", "proposal_boundary_review"} {
 		if _, err := registry.Call(ctx, "jobs.schedule_review", mustJSONRaw(t, map[string]any{
 			"kind":       kind,
 			"channel_id": "c-review",
@@ -697,7 +726,7 @@ func TestAutomationCandidateAndReviewSchedulingTools(t *testing.T) {
 		}
 		foundKinds[job.Kind] = true
 	}
-	for _, kind := range []string{"curiosity_review", "initiative_review", "soft_reminder_review", "topic_synthesis_review", "baseline_review"} {
+	for _, kind := range []string{"curiosity_review", "initiative_review", "soft_reminder_review", "topic_synthesis_review", "baseline_review", "policy_synthesis_review", "workspace_review", "proposal_boundary_review"} {
 		if !foundKinds[kind] {
 			t.Fatalf("expected %s job, got %#v", kind, allJobs)
 		}
@@ -990,5 +1019,73 @@ func TestExtendedReviewSchedulingAndSpaceInsightTools(t *testing.T) {
 	}
 	if !strings.Contains(suggestions.ContentItems[0].Text, "unprofiled-1") && !strings.Contains(suggestions.ContentItems[0].Text, "notes") {
 		t.Fatalf("unexpected profile suggestions: %#v", suggestions.ContentItems)
+	}
+}
+
+func TestSpaceSnapshotTools(t *testing.T) {
+	store, err := memory.Open(filepath.Join(t.TempDir(), "yururi.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	if err := store.SaveMessage(ctx, memory.Message{
+		ID:          "m1",
+		ChannelID:   "active-1",
+		ChannelName: "general",
+		AuthorID:    "owner",
+		AuthorName:  "shiyui",
+		Content:     "active",
+		CreatedAt:   now,
+	}); err != nil {
+		t.Fatalf("save message: %v", err)
+	}
+
+	discord := &discordStub{channels: []discordsvc.Channel{
+		{ID: "cat1", Name: "lab", Type: discordgo.ChannelTypeGuildCategory},
+		{ID: "active-1", Name: "general", ParentID: "cat1", Type: discordgo.ChannelTypeGuildText},
+	}}
+
+	registry := codex.NewToolRegistry()
+	app := &App{
+		cfg: config.Config{
+			Discord: config.DiscordConfig{GuildID: "g1", OwnerUserID: "owner"},
+		},
+		logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
+		loc:     time.UTC,
+		store:   store,
+		discord: discord,
+	}
+	app.registerAutonomyTools(registry)
+
+	if _, err := registry.Call(ctx, "discord.capture_space_snapshot", mustJSONRaw(t, map[string]any{
+		"label": "before",
+	})); err != nil {
+		t.Fatalf("capture snapshot before: %v", err)
+	}
+
+	discord.channels = append(discord.channels, discordsvc.Channel{ID: "notes-1", Name: "notes", ParentID: "cat1", Type: discordgo.ChannelTypeGuildText})
+	if _, err := registry.Call(ctx, "discord.capture_space_snapshot", mustJSONRaw(t, map[string]any{
+		"label": "after",
+	})); err != nil {
+		t.Fatalf("capture snapshot after: %v", err)
+	}
+
+	listed, err := registry.Call(ctx, "discord.recent_space_snapshots", mustJSONRaw(t, map[string]any{"limit": 5}))
+	if err != nil {
+		t.Fatalf("recent space snapshots: %v", err)
+	}
+	if !strings.Contains(listed.ContentItems[0].Text, "snapshot label: after") || !strings.Contains(listed.ContentItems[0].Text, "snapshot label: before") {
+		t.Fatalf("unexpected snapshot list: %#v", listed.ContentItems)
+	}
+
+	diff, err := registry.Call(ctx, "discord.diff_recent_space_snapshots", mustJSONRaw(t, map[string]any{}))
+	if err != nil {
+		t.Fatalf("diff recent space snapshots: %v", err)
+	}
+	if !strings.Contains(diff.ContentItems[0].Text, "added:") || !strings.Contains(diff.ContentItems[0].Text, "notes") {
+		t.Fatalf("unexpected snapshot diff: %#v", diff.ContentItems)
 	}
 }

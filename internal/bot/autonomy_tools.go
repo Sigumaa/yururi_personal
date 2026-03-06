@@ -244,14 +244,25 @@ func (a *App) registerMemoryAutonomyTools(registry *codex.ToolRegistry) {
 
 	a.registerFactListTool(registry, "memory.list_behavior_deviations", "いつもと違う動きや空気感の観測メモを一覧する", "behavior_deviation", "no behavior deviations")
 	a.registerFactWriteTool(registry, "memory.write_behavior_deviation", "いつもと違う動きや空気感の観測を behavior deviation として保存する", "behavior_deviation")
+
+	a.registerFactListTool(registry, "memory.list_learned_policies", "経験からにじんだ振る舞い方針のメモを一覧する", "learned_policy", "no learned policies")
+	a.registerFactWriteTool(registry, "memory.write_learned_policy", "経験から学んだ軽い振る舞い方針を learned policy として保存する", "learned_policy")
+	a.registerFactCloseTool(registry, "memory.retire_learned_policy", "古くなった learned policy を退役させ、必要なら decision に残す", "learned_policy", "decision", "policy/")
+
+	a.registerFactListTool(registry, "memory.list_workspace_notes", "下書きや途中メモとして残している workspace note を一覧する", "workspace_note", "no workspace notes")
+	a.registerFactWriteTool(registry, "memory.write_workspace_note", "自分用の下書きや途中メモを workspace note として保存する", "workspace_note")
+
+	a.registerFactListTool(registry, "memory.list_proposal_boundaries", "勝手にやる・提案に留める・観測だけにする境界メモを一覧する", "proposal_boundary", "no proposal boundaries")
+	a.registerFactWriteTool(registry, "memory.write_proposal_boundary", "自律的にやることと提案に留めることの境界メモを proposal boundary として保存する", "proposal_boundary")
+	a.registerFactCloseTool(registry, "memory.retire_proposal_boundary", "古くなった proposal boundary を退役させ、必要なら decision に残す", "proposal_boundary", "decision", "boundary/")
 }
 
 func (a *App) registerJobAutonomyTools(registry *codex.ToolRegistry) {
 	registry.Register(codex.ToolSpec{
 		Name:        "jobs.schedule_review",
-		Description: "open loop、curiosity、initiative、soft reminder、topic synthesis、baseline、decision、self improvement、channel role、channel curation の review job を作る",
+		Description: "open loop、curiosity、initiative、soft reminder、topic synthesis、baseline、policy synthesis、workspace、proposal boundary、decision、self improvement、channel role、channel curation の review job を作る",
 		InputSchema: objectSchema(
-			fieldSchema("kind", "string", "open_loop_review, curiosity_review, initiative_review, soft_reminder_review, topic_synthesis_review, baseline_review, decision_review, self_improvement_review, channel_role_review, channel_curation"),
+			fieldSchema("kind", "string", "open_loop_review, curiosity_review, initiative_review, soft_reminder_review, topic_synthesis_review, baseline_review, policy_synthesis_review, workspace_review, proposal_boundary_review, decision_review, self_improvement_review, channel_role_review, channel_curation"),
 			fieldSchema("channel_id", "string", "投稿先チャンネル ID"),
 			fieldSchema("schedule", "string", "Go duration。省略時は kind ごとの既定値"),
 		),
@@ -288,6 +299,18 @@ func (a *App) registerJobAutonomyTools(registry *codex.ToolRegistry) {
 		case "baseline_review":
 			if input.Schedule == "" {
 				input.Schedule = "72h"
+			}
+		case "policy_synthesis_review":
+			if input.Schedule == "" {
+				input.Schedule = "96h"
+			}
+		case "workspace_review":
+			if input.Schedule == "" {
+				input.Schedule = "48h"
+			}
+		case "proposal_boundary_review":
+			if input.Schedule == "" {
+				input.Schedule = "96h"
 			}
 		case "channel_curation":
 			if input.Schedule == "" {
@@ -548,6 +571,195 @@ func (a *App) registerDiscordAutonomyTools(registry *codex.ToolRegistry) {
 		}
 		return textTool(suggestChannelProfiles(channels, profiles, activity, input.SinceHours)), nil
 	})
+
+	registry.Register(codex.ToolSpec{
+		Name:        "discord.capture_space_snapshot",
+		Description: "現在のサーバー構造と最近の活動を space snapshot として保存する",
+		InputSchema: objectSchema(
+			fieldSchema("label", "string", "snapshot の短いラベル。省略可"),
+			fieldSchema("since_hours", "integer", "最近の活動を見る時間幅"),
+		),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+		if a.discord == nil {
+			return codex.ToolResponse{}, errors.New("discord is not connected")
+		}
+		var input struct {
+			Label      string `json:"label"`
+			SinceHours int    `json:"since_hours"`
+		}
+		_ = json.Unmarshal(raw, &input)
+		if input.SinceHours <= 0 {
+			input.SinceHours = 168
+		}
+		channels, err := a.discord.ListChannels(ctx, a.cfg.Discord.GuildID)
+		if err != nil {
+			return codex.ToolResponse{}, err
+		}
+		profiles, err := a.store.ListChannelProfiles(ctx)
+		if err != nil {
+			return codex.ToolResponse{}, err
+		}
+		activity, err := a.store.ChannelActivitySince(ctx, time.Now().UTC().Add(-time.Duration(input.SinceHours)*time.Hour), 256)
+		if err != nil {
+			return codex.ToolResponse{}, err
+		}
+		loc := a.loc
+		if loc == nil {
+			loc = time.UTC
+		}
+		snapshot := describeServer(channels, profiles, activity, loc)
+		now := time.Now().UTC()
+		content := formatSpaceSnapshotContent(strings.TrimSpace(input.Label), input.SinceHours, snapshot)
+		if err := a.store.SaveSummary(ctx, memory.Summary{
+			Period:    "space_snapshot",
+			ChannelID: "",
+			Content:   content,
+			StartsAt:  now,
+			EndsAt:    now,
+			CreatedAt: now,
+		}); err != nil {
+			return codex.ToolResponse{}, err
+		}
+		return textTool(fmt.Sprintf("saved space snapshot label=%s", strings.TrimSpace(input.Label))), nil
+	})
+
+	registry.Register(codex.ToolSpec{
+		Name:        "discord.recent_space_snapshots",
+		Description: "保存済みの space snapshot を新しい順に一覧する",
+		InputSchema: objectSchema(fieldSchema("limit", "integer", "取得件数")),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+		var input struct {
+			Limit int `json:"limit"`
+		}
+		_ = json.Unmarshal(raw, &input)
+		if input.Limit <= 0 {
+			input.Limit = 5
+		}
+		snapshots, err := a.store.RecentSummaries(ctx, "space_snapshot", input.Limit)
+		if err != nil {
+			return codex.ToolResponse{}, err
+		}
+		if len(snapshots) == 0 {
+			return textTool("no space snapshots"), nil
+		}
+		lines := make([]string, 0, len(snapshots))
+		for _, item := range snapshots {
+			lines = append(lines, fmt.Sprintf("- [%s] %s", item.CreatedAt.In(a.loc).Format(time.RFC3339), firstNonEmptyLine(item.Content)))
+		}
+		return textTool(strings.Join(lines, "\n")), nil
+	})
+
+	registry.Register(codex.ToolSpec{
+		Name:        "discord.diff_recent_space_snapshots",
+		Description: "直近 2 つの space snapshot の差分を簡潔に出す",
+		InputSchema: objectSchema(),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+		snapshots, err := a.store.RecentSummaries(ctx, "space_snapshot", 2)
+		if err != nil {
+			return codex.ToolResponse{}, err
+		}
+		if len(snapshots) < 2 {
+			return textTool("not enough space snapshots"), nil
+		}
+		diff := diffSpaceSnapshotContents(snapshots[1].Content, snapshots[0].Content)
+		if strings.TrimSpace(diff) == "" {
+			return textTool("no space snapshot diff"), nil
+		}
+		return textTool(diff), nil
+	})
+}
+
+func formatSpaceSnapshotContent(label string, sinceHours int, snapshot string) string {
+	lines := []string{
+		fmt.Sprintf("snapshot label: %s", fallbackLabel(label)),
+		fmt.Sprintf("since_hours: %d", sinceHours),
+		strings.TrimSpace(snapshot),
+	}
+	return strings.Join(lines, "\n")
+}
+
+func fallbackLabel(label string) string {
+	if strings.TrimSpace(label) == "" {
+		return "snapshot"
+	}
+	return strings.TrimSpace(label)
+}
+
+func firstNonEmptyLine(content string) string {
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			return line
+		}
+	}
+	return ""
+}
+
+func diffSpaceSnapshotContents(older string, newer string) string {
+	olderLines := snapshotComparableLines(older)
+	newerLines := snapshotComparableLines(newer)
+
+	olderSet := make(map[string]struct{}, len(olderLines))
+	for _, line := range olderLines {
+		olderSet[line] = struct{}{}
+	}
+	newerSet := make(map[string]struct{}, len(newerLines))
+	for _, line := range newerLines {
+		newerSet[line] = struct{}{}
+	}
+
+	var added []string
+	for _, line := range newerLines {
+		if _, ok := olderSet[line]; ok {
+			continue
+		}
+		added = append(added, "+ "+line)
+	}
+	var removed []string
+	for _, line := range olderLines {
+		if _, ok := newerSet[line]; ok {
+			continue
+		}
+		removed = append(removed, "- "+line)
+	}
+
+	lines := []string{
+		fmt.Sprintf("newer: %s", firstNonEmptyLine(newer)),
+		fmt.Sprintf("older: %s", firstNonEmptyLine(older)),
+	}
+	if len(added) == 0 && len(removed) == 0 {
+		lines = append(lines, "no line-level diff")
+		return strings.Join(lines, "\n")
+	}
+	lines = append(lines, "added:")
+	if len(added) == 0 {
+		lines = append(lines, "- none")
+	} else {
+		lines = append(lines, added...)
+	}
+	lines = append(lines, "removed:")
+	if len(removed) == 0 {
+		lines = append(lines, "- none")
+	} else {
+		lines = append(lines, removed...)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func snapshotComparableLines(content string) []string {
+	lines := strings.Split(content, "\n")
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "snapshot label:") || strings.HasPrefix(line, "since_hours:") {
+			continue
+		}
+		out = append(out, line)
+	}
+	return out
 }
 
 func findStaleTextChannels(channels []discordsvc.Channel, activity []memory.ChannelActivity) []discordsvc.Channel {

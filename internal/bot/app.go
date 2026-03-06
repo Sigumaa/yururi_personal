@@ -98,6 +98,9 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	app.scheduler.Register("soft_reminder_review", jobHandlerFunc(app.handleSoftReminderReviewJob))
 	app.scheduler.Register("topic_synthesis_review", jobHandlerFunc(app.handleTopicSynthesisReviewJob))
 	app.scheduler.Register("baseline_review", jobHandlerFunc(app.handleBaselineReviewJob))
+	app.scheduler.Register("policy_synthesis_review", jobHandlerFunc(app.handlePolicySynthesisReviewJob))
+	app.scheduler.Register("workspace_review", jobHandlerFunc(app.handleWorkspaceReviewJob))
+	app.scheduler.Register("proposal_boundary_review", jobHandlerFunc(app.handleProposalBoundaryReviewJob))
 	app.scheduler.Register("wake_summary", jobHandlerFunc(app.handleWakeSummaryJob))
 	app.scheduler.Register("autonomy_pulse", jobHandlerFunc(app.handleAutonomyPulseJob))
 	app.scheduler.Register("reminder", jobHandlerFunc(app.handleReminderJob))
@@ -232,7 +235,7 @@ func (a *App) processMessage(session *discordgo.Session, event *discordgo.Messag
 	}
 
 	recent, _ := a.store.RecentMessages(ctx, event.ChannelID, 12)
-	facts, _ := a.store.SearchFacts(ctx, channelName, 8)
+	facts, _ := a.collectConversationFacts(ctx, msg, 12)
 	a.logger.Info("message context ready", "channel", channelName, "recent_messages", len(recent), "related_facts", len(facts), "profile_kind", profile.Kind)
 	a.logger.Debug("message context detail", "channel", channelName, "profile", previewJSON(profile, 320), "recent_preview", previewJSON(recent, 900), "fact_preview", previewJSON(facts, 900))
 

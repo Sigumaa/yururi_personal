@@ -145,7 +145,7 @@ func TestConversationPromptAllowsDirectToolsAndMultiReplies(t *testing.T) {
 	if !strings.Contains(prompt, "current message の画像添付はこの turn にすでに載っている") {
 		t.Fatalf("expected direct image input guidance, got %s", prompt)
 	}
-	for _, want := range []string{"curiosity", "agent goal", "soft reminder", "topic thread", "initiative", "behavior baseline", "behavior deviation"} {
+	for _, want := range []string{"curiosity", "agent goal", "soft reminder", "topic thread", "initiative", "behavior baseline", "behavior deviation", "learned policy", "workspace note", "proposal boundary"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("expected extended memory hint %q, got %s", want, prompt)
 		}
@@ -166,8 +166,14 @@ func TestAutonomyPulsePromptAllowsSilenceAndAction(t *testing.T) {
 		[]memory.Fact{{Key: "cleanup", Value: "来月くらいに整理したい"}},
 		[]memory.Fact{{Key: "auth", Value: "OAuth の断片が増えている"}},
 		[]memory.Fact{{Key: "proposal", Value: "監視専用の場所を提案したい"}},
+		[]memory.Fact{{Key: "space-curation", Value: "空間整理の流れを半自動で整えたい"}},
+		[]memory.Fact{{Key: "sleep-schedule", Value: "就寝時間帯の確信が弱い"}},
+		[]memory.Fact{{Key: "over-reply", Value: "独り言に反応しすぎた"}},
 		[]memory.Fact{{Key: "night", Value: "23時台に静かになりやすい"}},
 		[]memory.Fact{{Key: "late", Value: "今日は深夜でも話している"}},
+		[]memory.Fact{{Key: "notify-lightly", Value: "軽い通知は一言で済ませる"}},
+		[]memory.Fact{{Key: "workshop-draft", Value: "作業用の下書き置き場を作りたい"}},
+		[]memory.Fact{{Key: "space-boundary", Value: "整理案は先に作って、変更は提案に留める"}},
 		[]memory.Summary{{Content: "昨日は途中で止まりがちだった"}},
 		[]memory.Summary{{Content: "batch tool を増やした"}},
 		[]memory.Fact{{Key: "autonomy-mode", Value: "前置きだけで止まらない"}},
@@ -188,7 +194,7 @@ func TestAutonomyPulsePromptAllowsSilenceAndAction(t *testing.T) {
 	if !strings.Contains(prompt, "open loops") || !strings.Contains(prompt, "agent-flow") {
 		t.Fatalf("expected open loop context, got %s", prompt)
 	}
-	for _, want := range []string{"curiosities", "agent goals", "soft reminders", "topic threads", "initiatives", "behavior baselines", "behavior deviations"} {
+	for _, want := range []string{"curiosities", "agent goals", "soft reminders", "topic threads", "initiatives", "automation candidates", "context gaps", "misfires", "behavior baselines", "behavior deviations", "learned policies", "workspace notes", "proposal boundaries"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("expected %q in autonomy prompt, got %s", want, prompt)
 		}

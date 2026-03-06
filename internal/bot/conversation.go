@@ -88,8 +88,14 @@ func (a *App) handleAutonomyPulseJob(ctx context.Context, job jobs.Job) (jobs.Re
 	reminders, _ := a.store.ListFacts(ctx, "soft_reminder", 8)
 	topics, _ := a.store.ListFacts(ctx, "topic_thread", 8)
 	initiatives, _ := a.store.ListFacts(ctx, "initiative", 8)
+	automationCandidates, _ := a.store.ListFacts(ctx, "automation_candidate", 8)
+	contextGaps, _ := a.store.ListFacts(ctx, "context_gap", 8)
+	misfires, _ := a.store.ListFacts(ctx, "misfire", 8)
 	baselines, _ := a.store.ListFacts(ctx, "behavior_baseline", 8)
 	deviations, _ := a.store.ListFacts(ctx, "behavior_deviation", 8)
+	learnedPolicies, _ := a.store.ListFacts(ctx, "learned_policy", 8)
+	workspaceNotes, _ := a.store.ListFacts(ctx, "workspace_note", 8)
+	proposalBoundaries, _ := a.store.ListFacts(ctx, "proposal_boundary", 8)
 	reflections, _ := a.store.RecentSummaries(ctx, "reflection", 3)
 	growth, _ := a.store.RecentSummaries(ctx, "growth", 3)
 	decisions, _ := a.store.ListFacts(ctx, "decision", 6)
@@ -106,8 +112,14 @@ func (a *App) handleAutonomyPulseJob(ctx context.Context, job jobs.Job) (jobs.Re
 		reminders,
 		topics,
 		initiatives,
+		automationCandidates,
+		contextGaps,
+		misfires,
 		baselines,
 		deviations,
+		learnedPolicies,
+		workspaceNotes,
+		proposalBoundaries,
 		reflections,
 		growth,
 		decisions,

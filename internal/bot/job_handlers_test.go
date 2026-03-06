@@ -202,4 +202,41 @@ func TestReviewPromptBuilders(t *testing.T) {
 			t.Fatalf("expected %q in baseline prompt, got %s", want, baselinePrompt)
 		}
 	}
+
+	policyPrompt := buildPolicySynthesisReviewPrompt(
+		[]memory.Fact{{Kind: "learned_policy", Key: "notify-lightly", Value: "軽い通知は一言で済ませる"}},
+		[]memory.Fact{{Kind: "decision", Key: "tone", Value: "説明は短めにする"}},
+		[]memory.Fact{{Kind: "misfire", Key: "over-reply", Value: "独り言に反応しすぎた"}},
+		[]memory.Summary{{Content: "前置きだけで止まらないほうがよい"}},
+	)
+	for _, want := range []string{"learned policies", "notify-lightly", "recent misfires"} {
+		if !strings.Contains(policyPrompt, want) {
+			t.Fatalf("expected %q in policy prompt, got %s", want, policyPrompt)
+		}
+	}
+
+	workspacePrompt := buildWorkspaceReviewPrompt(
+		[]memory.Fact{{Kind: "workspace_note", Key: "workshop-draft", Value: "作業用チャンネルをどう作るかの下書き"}},
+		[]memory.Fact{{Kind: "initiative", Key: "workshop", Value: "作業場所の候補を見たい"}},
+		[]memory.Fact{{Kind: "topic_thread", Key: "auth", Value: "認証まわりの断片が増えている"}},
+		[]memory.Message{{ChannelName: "general", Content: "作業場所を分けたいかも", CreatedAt: time.Date(2026, 3, 7, 1, 0, 0, 0, time.UTC)}},
+	)
+	for _, want := range []string{"workspace notes", "workshop-draft", "topic threads"} {
+		if !strings.Contains(workspacePrompt, want) {
+			t.Fatalf("expected %q in workspace prompt, got %s", want, workspacePrompt)
+		}
+	}
+
+	boundaryPrompt := buildProposalBoundaryReviewPrompt(
+		[]memory.Fact{{Kind: "proposal_boundary", Key: "space-boundary", Value: "整理案は先に作って、変更は提案に留める"}},
+		[]memory.Fact{{Kind: "initiative", Key: "cleanup", Value: "空間整理をしたい"}},
+		[]memory.Fact{{Kind: "decision", Key: "autonomy-mode", Value: "小さな整理は今やる"}},
+		[]memory.Fact{{Kind: "misfire", Key: "too-bold", Value: "勝手にやりすぎた"}},
+		[]memory.Fact{{Kind: "context_gap", Key: "scope", Value: "どこまで触ってよいか迷う"}},
+	)
+	for _, want := range []string{"proposal boundaries", "space-boundary", "context gaps"} {
+		if !strings.Contains(boundaryPrompt, want) {
+			t.Fatalf("expected %q in proposal boundary prompt, got %s", want, boundaryPrompt)
+		}
+	}
 }

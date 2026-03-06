@@ -444,7 +444,7 @@ func (a *App) registerMemoryExtraTools(registry *codex.ToolRegistry) {
 
 	registry.Register(codex.ToolSpec{
 		Name:        "memory.recall_briefing",
-		Description: "最近の owner 発話、routine、open loop、promise、curiosity、goal、soft reminder、topic、initiative、reflection、growth、decision、gap、misfire、baseline をまとめて引く",
+		Description: "最近の owner 発話、routine、open loop、promise、curiosity、goal、soft reminder、topic、initiative、自動化候補、learned policy、workspace note、proposal boundary、reflection、growth、decision、gap、misfire、baseline をまとめて引く",
 		InputSchema: objectSchema(fieldSchema("limit", "integer", "各セクションのおおよその件数")),
 	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
 		var input struct {
@@ -488,6 +488,22 @@ func (a *App) registerMemoryExtraTools(registry *codex.ToolRegistry) {
 			return codex.ToolResponse{}, err
 		}
 		initiatives, err := a.store.ListFacts(ctx, "initiative", input.Limit)
+		if err != nil {
+			return codex.ToolResponse{}, err
+		}
+		automationCandidates, err := a.store.ListFacts(ctx, "automation_candidate", input.Limit)
+		if err != nil {
+			return codex.ToolResponse{}, err
+		}
+		learnedPolicies, err := a.store.ListFacts(ctx, "learned_policy", input.Limit)
+		if err != nil {
+			return codex.ToolResponse{}, err
+		}
+		workspaceNotes, err := a.store.ListFacts(ctx, "workspace_note", input.Limit)
+		if err != nil {
+			return codex.ToolResponse{}, err
+		}
+		proposalBoundaries, err := a.store.ListFacts(ctx, "proposal_boundary", input.Limit)
 		if err != nil {
 			return codex.ToolResponse{}, err
 		}
@@ -597,6 +613,42 @@ func (a *App) registerMemoryExtraTools(registry *codex.ToolRegistry) {
 			lines = append(lines, "- none")
 		} else {
 			for _, item := range initiatives {
+				lines = append(lines, fmt.Sprintf("- %s: %s", item.Key, truncateText(item.Value, 220)))
+			}
+		}
+
+		lines = append(lines, "automation_candidates:")
+		if len(automationCandidates) == 0 {
+			lines = append(lines, "- none")
+		} else {
+			for _, item := range automationCandidates {
+				lines = append(lines, fmt.Sprintf("- %s: %s", item.Key, truncateText(item.Value, 220)))
+			}
+		}
+
+		lines = append(lines, "learned_policies:")
+		if len(learnedPolicies) == 0 {
+			lines = append(lines, "- none")
+		} else {
+			for _, item := range learnedPolicies {
+				lines = append(lines, fmt.Sprintf("- %s: %s", item.Key, truncateText(item.Value, 220)))
+			}
+		}
+
+		lines = append(lines, "workspace_notes:")
+		if len(workspaceNotes) == 0 {
+			lines = append(lines, "- none")
+		} else {
+			for _, item := range workspaceNotes {
+				lines = append(lines, fmt.Sprintf("- %s: %s", item.Key, truncateText(item.Value, 220)))
+			}
+		}
+
+		lines = append(lines, "proposal_boundaries:")
+		if len(proposalBoundaries) == 0 {
+			lines = append(lines, "- none")
+		} else {
+			for _, item := range proposalBoundaries {
 				lines = append(lines, fmt.Sprintf("- %s: %s", item.Key, truncateText(item.Value, 220)))
 			}
 		}

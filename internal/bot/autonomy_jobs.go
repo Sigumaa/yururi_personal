@@ -159,6 +159,76 @@ func (a *App) handleBaselineReviewJob(ctx context.Context, job jobs.Job) (jobs.R
 	return a.runNarrativeJob(ctx, job, "baseline_review", prompt, nextRun, false)
 }
 
+func (a *App) handlePolicySynthesisReviewJob(ctx context.Context, job jobs.Job) (jobs.Result, error) {
+	learnedPolicies, err := a.store.ListFacts(ctx, "learned_policy", 16)
+	if err != nil {
+		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 96*time.Hour))}, err
+	}
+	decisions, err := a.store.ListFacts(ctx, "decision", 12)
+	if err != nil {
+		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 96*time.Hour))}, err
+	}
+	misfires, err := a.store.ListFacts(ctx, "misfire", 12)
+	if err != nil {
+		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 96*time.Hour))}, err
+	}
+	reflections, err := a.store.RecentSummaries(ctx, "reflection", 8)
+	if err != nil {
+		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 96*time.Hour))}, err
+	}
+	prompt := buildPolicySynthesisReviewPrompt(learnedPolicies, decisions, misfires, reflections)
+	nextRun := time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 96*time.Hour))
+	return a.runNarrativeJob(ctx, job, "policy_synthesis_review", prompt, nextRun, false)
+}
+
+func (a *App) handleWorkspaceReviewJob(ctx context.Context, job jobs.Job) (jobs.Result, error) {
+	workspaceNotes, err := a.store.ListFacts(ctx, "workspace_note", 16)
+	if err != nil {
+		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 48*time.Hour))}, err
+	}
+	initiatives, err := a.store.ListFacts(ctx, "initiative", 12)
+	if err != nil {
+		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 48*time.Hour))}, err
+	}
+	topics, err := a.store.ListFacts(ctx, "topic_thread", 12)
+	if err != nil {
+		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 48*time.Hour))}, err
+	}
+	recentOwnerMessages, err := a.store.RecentMessagesByAuthor(ctx, a.cfg.Discord.OwnerUserID, "", 12)
+	if err != nil {
+		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 48*time.Hour))}, err
+	}
+	prompt := buildWorkspaceReviewPrompt(workspaceNotes, initiatives, topics, recentOwnerMessages)
+	nextRun := time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 48*time.Hour))
+	return a.runNarrativeJob(ctx, job, "workspace_review", prompt, nextRun, false)
+}
+
+func (a *App) handleProposalBoundaryReviewJob(ctx context.Context, job jobs.Job) (jobs.Result, error) {
+	proposalBoundaries, err := a.store.ListFacts(ctx, "proposal_boundary", 16)
+	if err != nil {
+		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 96*time.Hour))}, err
+	}
+	initiatives, err := a.store.ListFacts(ctx, "initiative", 12)
+	if err != nil {
+		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 96*time.Hour))}, err
+	}
+	decisions, err := a.store.ListFacts(ctx, "decision", 12)
+	if err != nil {
+		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 96*time.Hour))}, err
+	}
+	misfires, err := a.store.ListFacts(ctx, "misfire", 12)
+	if err != nil {
+		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 96*time.Hour))}, err
+	}
+	contextGaps, err := a.store.ListFacts(ctx, "context_gap", 8)
+	if err != nil {
+		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 96*time.Hour))}, err
+	}
+	prompt := buildProposalBoundaryReviewPrompt(proposalBoundaries, initiatives, decisions, misfires, contextGaps)
+	nextRun := time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 96*time.Hour))
+	return a.runNarrativeJob(ctx, job, "proposal_boundary_review", prompt, nextRun, false)
+}
+
 func (a *App) handleChannelCurationJob(ctx context.Context, job jobs.Job) (jobs.Result, error) {
 	if a.discord == nil {
 		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 168*time.Hour))}, errors.New("discord is not connected")
@@ -493,6 +563,155 @@ routines:
 
 recent owner messages:
 %s`, noReplyToken, strings.Join(baselineLines, "\n"), strings.Join(deviationLines, "\n"), strings.Join(routineLines, "\n"), strings.Join(messageLines, "\n"))
+}
+
+func buildPolicySynthesisReviewPrompt(learnedPolicies []memory.Fact, decisions []memory.Fact, misfires []memory.Fact, reflections []memory.Summary) string {
+	policyLines := make([]string, 0, len(learnedPolicies))
+	for _, item := range learnedPolicies {
+		policyLines = append(policyLines, fmt.Sprintf("- %s: %s", item.Key, item.Value))
+	}
+	if len(policyLines) == 0 {
+		policyLines = append(policyLines, "- none")
+	}
+	decisionLines := make([]string, 0, len(decisions))
+	for _, item := range decisions {
+		decisionLines = append(decisionLines, fmt.Sprintf("- %s: %s", item.Key, truncateText(item.Value, 180)))
+	}
+	if len(decisionLines) == 0 {
+		decisionLines = append(decisionLines, "- none")
+	}
+	misfireLines := make([]string, 0, len(misfires))
+	for _, item := range misfires {
+		misfireLines = append(misfireLines, fmt.Sprintf("- %s: %s", item.Key, truncateText(item.Value, 180)))
+	}
+	if len(misfireLines) == 0 {
+		misfireLines = append(misfireLines, "- none")
+	}
+	reflectionLines := make([]string, 0, len(reflections))
+	for _, item := range reflections {
+		reflectionLines = append(reflectionLines, fmt.Sprintf("- %s", truncateText(item.Content, 180)))
+	}
+	if len(reflectionLines) == 0 {
+		reflectionLines = append(reflectionLines, "- none")
+	}
+	return fmt.Sprintf(`経験からにじんだ learned policy を見直してください。
+続けるとよさそうな方針、弱めたほうがよさそうな方針、まだ仮置きにしておく方針を 1 から 3 個だけ短くまとめてください。
+基底人格や固定ルールを書き換えるのではなく、最近の成功・失敗から学べる軽い方針として扱ってください。
+必要性が薄ければ %s だけを返してください。
+
+learned policies:
+%s
+
+recent decisions:
+%s
+
+recent misfires:
+%s
+
+recent reflections:
+%s`, noReplyToken, strings.Join(policyLines, "\n"), strings.Join(decisionLines, "\n"), strings.Join(misfireLines, "\n"), strings.Join(reflectionLines, "\n"))
+}
+
+func buildWorkspaceReviewPrompt(workspaceNotes []memory.Fact, initiatives []memory.Fact, topics []memory.Fact, recentOwnerMessages []memory.Message) string {
+	workspaceNoteLines := make([]string, 0, len(workspaceNotes))
+	for _, item := range workspaceNotes {
+		workspaceNoteLines = append(workspaceNoteLines, fmt.Sprintf("- %s: %s", item.Key, truncateText(item.Value, 180)))
+	}
+	if len(workspaceNoteLines) == 0 {
+		workspaceNoteLines = append(workspaceNoteLines, "- none")
+	}
+	initiativeLines := make([]string, 0, len(initiatives))
+	for _, item := range initiatives {
+		initiativeLines = append(initiativeLines, fmt.Sprintf("- %s: %s", item.Key, truncateText(item.Value, 180)))
+	}
+	if len(initiativeLines) == 0 {
+		initiativeLines = append(initiativeLines, "- none")
+	}
+	topicLines := make([]string, 0, len(topics))
+	for _, item := range topics {
+		topicLines = append(topicLines, fmt.Sprintf("- %s: %s", item.Key, truncateText(item.Value, 180)))
+	}
+	if len(topicLines) == 0 {
+		topicLines = append(topicLines, "- none")
+	}
+	messageLines := make([]string, 0, len(recentOwnerMessages))
+	for _, msg := range recentOwnerMessages {
+		messageLines = append(messageLines, fmt.Sprintf("- [%s/%s] %s", msg.CreatedAt.Format("01-02 15:04"), msg.ChannelName, truncateText(msg.Content, 180)))
+	}
+	if len(messageLines) == 0 {
+		messageLines = append(messageLines, "- none")
+	}
+	return fmt.Sprintf(`自分用の workspace note や途中メモを見直してください。
+下書きとして育てる価値があるもの、そろそろ片づけてよいもの、チャンネルや作業場所として形にしたほうがよさそうなものを短くまとめてください。
+必要性が薄ければ %s だけを返してください。
+
+workspace notes:
+%s
+
+initiatives:
+%s
+
+topic threads:
+%s
+
+recent owner messages:
+%s`, noReplyToken, strings.Join(workspaceNoteLines, "\n"), strings.Join(initiativeLines, "\n"), strings.Join(topicLines, "\n"), strings.Join(messageLines, "\n"))
+}
+
+func buildProposalBoundaryReviewPrompt(proposalBoundaries []memory.Fact, initiatives []memory.Fact, decisions []memory.Fact, misfires []memory.Fact, contextGaps []memory.Fact) string {
+	boundaryLines := make([]string, 0, len(proposalBoundaries))
+	for _, item := range proposalBoundaries {
+		boundaryLines = append(boundaryLines, fmt.Sprintf("- %s: %s", item.Key, truncateText(item.Value, 180)))
+	}
+	if len(boundaryLines) == 0 {
+		boundaryLines = append(boundaryLines, "- none")
+	}
+	initiativeLines := make([]string, 0, len(initiatives))
+	for _, item := range initiatives {
+		initiativeLines = append(initiativeLines, fmt.Sprintf("- %s: %s", item.Key, truncateText(item.Value, 180)))
+	}
+	if len(initiativeLines) == 0 {
+		initiativeLines = append(initiativeLines, "- none")
+	}
+	decisionLines := make([]string, 0, len(decisions))
+	for _, item := range decisions {
+		decisionLines = append(decisionLines, fmt.Sprintf("- %s: %s", item.Key, truncateText(item.Value, 180)))
+	}
+	if len(decisionLines) == 0 {
+		decisionLines = append(decisionLines, "- none")
+	}
+	misfireLines := make([]string, 0, len(misfires))
+	for _, item := range misfires {
+		misfireLines = append(misfireLines, fmt.Sprintf("- %s: %s", item.Key, truncateText(item.Value, 180)))
+	}
+	if len(misfireLines) == 0 {
+		misfireLines = append(misfireLines, "- none")
+	}
+	contextGapLines := make([]string, 0, len(contextGaps))
+	for _, item := range contextGaps {
+		contextGapLines = append(contextGapLines, fmt.Sprintf("- %s: %s", item.Key, truncateText(item.Value, 180)))
+	}
+	if len(contextGapLines) == 0 {
+		contextGapLines = append(contextGapLines, "- none")
+	}
+	return fmt.Sprintf(`自分から勝手にやること、提案に留めること、観測だけしておくことの境界を見直してください。
+固定ルールではなく、最近の成功・失敗・迷いから学べる境界メモとして 1 から 3 個だけ短くまとめてください。
+必要性が薄ければ %s だけを返してください。
+
+proposal boundaries:
+%s
+
+initiatives:
+%s
+
+recent decisions:
+%s
+
+recent misfires:
+%s
+
+context gaps:
+%s`, noReplyToken, strings.Join(boundaryLines, "\n"), strings.Join(initiativeLines, "\n"), strings.Join(decisionLines, "\n"), strings.Join(misfireLines, "\n"), strings.Join(contextGapLines, "\n"))
 }
 
 func buildChannelCurationPrompt(channels []discordsvc.Channel, profiles []memory.ChannelProfile, activity []memory.ChannelActivity) string {

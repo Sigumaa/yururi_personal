@@ -46,3 +46,52 @@ func TestResolveChannelProfileStartsNeutral(t *testing.T) {
 		t.Fatalf("unexpected default profile weights: %#v", profile)
 	}
 }
+
+func TestCollectConversationFactsIncludesFoundations(t *testing.T) {
+	store, err := memory.Open(filepath.Join(t.TempDir(), "yururi.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	for _, fact := range []memory.Fact{
+		{Kind: "learned_policy", Key: "notify-lightly", Value: "軽い通知は一言で済ませる"},
+		{Kind: "proposal_boundary", Key: "space-boundary", Value: "整理案は先に作って、変更は提案に留める"},
+		{Kind: "topic_thread", Key: "general-space", Value: "general で空間整理の話題が増えている"},
+	} {
+		if err := store.UpsertFact(ctx, fact); err != nil {
+			t.Fatalf("upsert fact %s: %v", fact.Key, err)
+		}
+	}
+
+	app := &App{
+		cfg:    config.Config{},
+		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		loc:    time.UTC,
+		store:  store,
+	}
+
+	facts, err := app.collectConversationFacts(ctx, memory.Message{
+		ChannelID:   "c1",
+		ChannelName: "general",
+		AuthorID:    "owner",
+		AuthorName:  "shiyui",
+		Content:     "空間整理の流れを見たい",
+	}, 8)
+	if err != nil {
+		t.Fatalf("collect conversation facts: %v", err)
+	}
+	if len(facts) == 0 {
+		t.Fatal("expected collected facts")
+	}
+	got := map[string]bool{}
+	for _, fact := range facts {
+		got[fact.Kind+"/"+fact.Key] = true
+	}
+	for _, want := range []string{"learned_policy/notify-lightly", "proposal_boundary/space-boundary", "topic_thread/general-space"} {
+		if !got[want] {
+			t.Fatalf("expected %s in collected facts, got %#v", want, facts)
+		}
+	}
+}
