@@ -15,6 +15,9 @@ func TestInstructionsMentionPersonaAndContextDocs(t *testing.T) {
 	if !strings.Contains(baseInstructions(), "溺愛") {
 		t.Fatalf("expected base instructions to mention 溺愛, got %s", baseInstructions())
 	}
+	if !strings.Contains(baseInstructions(), "デレデレ") {
+		t.Fatalf("expected base instructions to mention デレデレ, got %s", baseInstructions())
+	}
 	dev := developerInstructions()
 	if !strings.Contains(dev, "workspace/context/*.md") {
 		t.Fatalf("expected developer instructions to mention context docs, got %s", dev)
@@ -33,6 +36,9 @@ func TestInstructionsMentionPersonaAndContextDocs(t *testing.T) {
 	}
 	if !strings.Contains(dev, "重たくなりすぎず") {
 		t.Fatalf("expected developer instructions to temper doting tone, got %s", dev)
+	}
+	if !strings.Contains(dev, "好きがにじんでもよい") {
+		t.Fatalf("expected developer instructions to allow affectionate tone, got %s", dev)
 	}
 }
 
@@ -126,6 +132,9 @@ func TestConversationPromptAllowsDirectToolsAndMultiReplies(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "前置きだけ送って止まらず") {
 		t.Fatalf("expected no-progress-only guidance, got %s", prompt)
+	}
+	if !strings.Contains(prompt, "デレをにじませつつ") {
+		t.Fatalf("expected affectionate tone guidance, got %s", prompt)
 	}
 	if !strings.Contains(prompt, "media__load_attachments") {
 		t.Fatalf("expected attachment tool hint, got %s", prompt)

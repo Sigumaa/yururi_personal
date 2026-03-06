@@ -45,6 +45,9 @@ func TestEnsureLayoutCreatesManagedFiles(t *testing.T) {
 	if !strings.Contains(string(raw), "女子大生メイド") {
 		t.Fatalf("expected persona prompt to mention 女子大生メイド, got %s", string(raw))
 	}
+	if !strings.Contains(string(raw), "溺愛デレデレ寄り") {
+		t.Fatalf("expected persona prompt to mention 溺愛デレデレ寄り, got %s", string(raw))
+	}
 	if !strings.Contains(string(raw), "確認なく進めてよい") {
 		t.Fatalf("expected model prompt to prefer act-first, got %s", string(raw))
 	}
