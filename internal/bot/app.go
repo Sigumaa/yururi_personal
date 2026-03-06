@@ -755,7 +755,7 @@ func (a *App) registerTools(registry *codex.ToolRegistry) {
 		if err != nil {
 			return codex.ToolResponse{}, err
 		}
-		return textTool(fmt.Sprintf("sent %s", messageID)), nil
+		return textTool(fmt.Sprintf("sent %s; まだ残りの作業があるなら、この turn の中で続けて進めてよい", messageID)), nil
 	})
 	registry.Register(codex.ToolSpec{
 		Name:        "discord.create_category",
@@ -764,9 +764,6 @@ func (a *App) registerTools(registry *codex.ToolRegistry) {
 	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
 		if a.discord == nil {
 			return codex.ToolResponse{}, errors.New("discord is not connected")
-		}
-		if err := a.requireVisibleProgress(ctx, "discord.create_category"); err != nil {
-			return codex.ToolResponse{}, err
 		}
 		var input struct {
 			Name string `json:"name"`
@@ -791,9 +788,6 @@ func (a *App) registerTools(registry *codex.ToolRegistry) {
 	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
 		if a.discord == nil {
 			return codex.ToolResponse{}, errors.New("discord is not connected")
-		}
-		if err := a.requireVisibleProgress(ctx, "discord.create_channel"); err != nil {
-			return codex.ToolResponse{}, err
 		}
 		var input struct {
 			Name            string `json:"name"`
@@ -823,9 +817,6 @@ func (a *App) registerTools(registry *codex.ToolRegistry) {
 	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
 		if a.discord == nil {
 			return codex.ToolResponse{}, errors.New("discord is not connected")
-		}
-		if err := a.requireVisibleProgress(ctx, "discord.move_channel"); err != nil {
-			return codex.ToolResponse{}, err
 		}
 		var input struct {
 			TargetChannelID string `json:"target_channel_id"`

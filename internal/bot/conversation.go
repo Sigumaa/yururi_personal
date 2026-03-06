@@ -34,10 +34,6 @@ func (a *App) runConversationTurn(ctx context.Context, threadID string, msg memo
 	if reply.Action == decision.ActionIgnore || strings.TrimSpace(reply.Message) == "" {
 		return "", nil
 	}
-	if looksLikePromiseOnly(reply.Message) {
-		a.logger.Warn("conversation reply suppressed promise-only", "channel", msg.ChannelName, "message_id", msg.ID, "reply", previewText(reply.Message, 240))
-		return "", nil
-	}
 	return strings.TrimSpace(reply.Message), nil
 }
 
@@ -100,9 +96,6 @@ func (a *App) handleAutonomyPulseJob(ctx context.Context, job jobs.Job) (jobs.Re
 
 	reply := parseAssistantReply(raw)
 	if reply.Action == decision.ActionIgnore || strings.TrimSpace(reply.Message) == "" {
-		return jobs.Result{NextRunAt: nextRunAt}, nil
-	}
-	if looksLikePromiseOnly(reply.Message) {
 		return jobs.Result{NextRunAt: nextRunAt}, nil
 	}
 	if targetChannelID == "" || a.discord == nil {

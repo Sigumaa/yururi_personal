@@ -239,6 +239,41 @@ func (s *Store) LatestChannelIDForAuthor(ctx context.Context, authorID string) (
 	return channelID, true, nil
 }
 
+func (s *Store) RecentMessagesByAuthor(ctx context.Context, authorID string, channelID string, limit int) ([]Message, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+
+	query := `
+		SELECT id, channel_id, channel_name, author_id, author_name, content, created_at, metadata_json
+		FROM raw_messages
+		WHERE author_id = ?
+	`
+	args := []any{authorID}
+	if strings.TrimSpace(channelID) != "" {
+		query += ` AND channel_id = ?`
+		args = append(args, channelID)
+	}
+	query += ` ORDER BY created_at DESC LIMIT ?`
+	args = append(args, limit)
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("recent messages by author: %w", err)
+	}
+	defer rows.Close()
+
+	var out []Message
+	for rows.Next() {
+		msg, err := scanMessage(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, msg)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) SearchMessages(ctx context.Context, query string, limit int) ([]Message, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {

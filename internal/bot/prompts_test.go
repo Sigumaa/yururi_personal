@@ -28,6 +28,9 @@ func TestInstructionsMentionPersonaAndContextDocs(t *testing.T) {
 	if !strings.Contains(dev, "必要なら会話の途中で複数回メッセージを送ってよい") {
 		t.Fatalf("expected developer instructions to allow multi-message progress, got %s", dev)
 	}
+	if !strings.Contains(dev, "前置きだけ送って止まらず") {
+		t.Fatalf("expected developer instructions to discourage empty progress-only replies, got %s", dev)
+	}
 	if !strings.Contains(dev, "重たくなりすぎず") {
 		t.Fatalf("expected developer instructions to temper doting tone, got %s", dev)
 	}
@@ -118,6 +121,12 @@ func TestConversationPromptAllowsDirectToolsAndMultiReplies(t *testing.T) {
 	if !strings.Contains(prompt, "discord__send_message を使って複数回話してよい") {
 		t.Fatalf("expected multi-reply guidance, got %s", prompt)
 	}
+	if !strings.Contains(prompt, "小さな write や整理は、前置きなしでそのまま tool を使って進めてよい") {
+		t.Fatalf("expected action-first guidance, got %s", prompt)
+	}
+	if !strings.Contains(prompt, "前置きだけ送って止まらず") {
+		t.Fatalf("expected no-progress-only guidance, got %s", prompt)
+	}
 	if !strings.Contains(prompt, "media__load_attachments") {
 		t.Fatalf("expected attachment tool hint, got %s", prompt)
 	}
@@ -140,6 +149,9 @@ func TestAutonomyPulsePromptAllowsSilenceAndAction(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "Factorio") {
 		t.Fatalf("expected presence activity, got %s", prompt)
+	}
+	if !strings.Contains(prompt, "少しでも価値があるなら自分から動いてよい") {
+		t.Fatalf("expected proactive autonomy guidance, got %s", prompt)
 	}
 	if !strings.Contains(prompt, "best target channel") {
 		t.Fatalf("expected target channel guidance, got %s", prompt)

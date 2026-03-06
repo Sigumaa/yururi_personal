@@ -226,6 +226,252 @@ func (a *App) registerMemoryExtraTools(registry *codex.ToolRegistry) {
 		}
 		return textTool(strings.Join(lines, "\n")), nil
 	})
+
+	registry.Register(codex.ToolSpec{
+		Name:        "memory.recent_owner_messages",
+		Description: "オーナーの最近の発話を横断的に読み返す",
+		InputSchema: objectSchema(
+			fieldSchema("channel_id", "string", "特定チャンネルに絞る場合のチャンネル ID"),
+			fieldSchema("query", "string", "検索語。省略時は時系列で新しいものを返す"),
+			fieldSchema("limit", "integer", "取得件数"),
+		),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+		var input struct {
+			ChannelID string `json:"channel_id"`
+			Query     string `json:"query"`
+			Limit     int    `json:"limit"`
+		}
+		_ = json.Unmarshal(raw, &input)
+		if input.Limit <= 0 {
+			input.Limit = 10
+		}
+
+		var messages []memory.Message
+		if strings.TrimSpace(input.Query) == "" {
+			var err error
+			messages, err = a.store.RecentMessagesByAuthor(ctx, a.cfg.Discord.OwnerUserID, input.ChannelID, input.Limit)
+			if err != nil {
+				return codex.ToolResponse{}, err
+			}
+		} else {
+			hits, err := a.store.SearchMessages(ctx, input.Query, max(input.Limit*4, 20))
+			if err != nil {
+				return codex.ToolResponse{}, err
+			}
+			for _, msg := range hits {
+				if msg.AuthorID != a.cfg.Discord.OwnerUserID {
+					continue
+				}
+				if input.ChannelID != "" && msg.ChannelID != input.ChannelID {
+					continue
+				}
+				messages = append(messages, msg)
+				if len(messages) >= input.Limit {
+					break
+				}
+			}
+		}
+
+		if len(messages) == 0 {
+			return textTool("no owner messages"), nil
+		}
+		lines := make([]string, 0, len(messages))
+		for _, msg := range messages {
+			lines = append(lines, fmt.Sprintf("- [%s] %s: %s", msg.CreatedAt.In(a.loc).Format(time.RFC3339), msg.ChannelName, truncateText(msg.Content, 220)))
+		}
+		return textTool(strings.Join(lines, "\n")), nil
+	})
+
+	registry.Register(codex.ToolSpec{
+		Name:        "memory.list_open_loops",
+		Description: "未解決の open loop を一覧する",
+		InputSchema: objectSchema(fieldSchema("limit", "integer", "取得件数")),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+		var input struct {
+			Limit int `json:"limit"`
+		}
+		_ = json.Unmarshal(raw, &input)
+		loops, err := a.store.ListFacts(ctx, "open_loop", input.Limit)
+		if err != nil {
+			return codex.ToolResponse{}, err
+		}
+		if len(loops) == 0 {
+			return textTool("no open loops"), nil
+		}
+		lines := make([]string, 0, len(loops))
+		for _, loop := range loops {
+			lines = append(lines, fmt.Sprintf("- %s: %s", loop.Key, loop.Value))
+		}
+		return textTool(strings.Join(lines, "\n")), nil
+	})
+
+	registry.Register(codex.ToolSpec{
+		Name:        "memory.write_open_loop",
+		Description: "未解決の問いや保留中の論点を open loop として保存する",
+		InputSchema: objectSchema(
+			fieldSchema("key", "string", "open loop の一意キー"),
+			fieldSchema("value", "string", "保留内容"),
+			fieldSchema("source_message_id", "string", "元メッセージ ID"),
+		),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+		var input struct {
+			Key             string `json:"key"`
+			Value           string `json:"value"`
+			SourceMessageID string `json:"source_message_id"`
+		}
+		if err := json.Unmarshal(raw, &input); err != nil {
+			return codex.ToolResponse{}, err
+		}
+		if strings.TrimSpace(input.Key) == "" || strings.TrimSpace(input.Value) == "" {
+			return codex.ToolResponse{}, errors.New("key and value are required")
+		}
+		if err := a.store.UpsertFact(ctx, memory.Fact{
+			Kind:            "open_loop",
+			Key:             input.Key,
+			Value:           input.Value,
+			SourceMessageID: input.SourceMessageID,
+		}); err != nil {
+			return codex.ToolResponse{}, err
+		}
+		return textTool("ok"), nil
+	})
+
+	registry.Register(codex.ToolSpec{
+		Name:        "memory.close_open_loop",
+		Description: "open loop を解決済みにして閉じる",
+		InputSchema: objectSchema(
+			fieldSchema("key", "string", "閉じる open loop のキー"),
+			fieldSchema("resolution", "string", "解決内容。省略可"),
+			fieldSchema("source_message_id", "string", "元メッセージ ID"),
+		),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+		var input struct {
+			Key             string `json:"key"`
+			Resolution      string `json:"resolution"`
+			SourceMessageID string `json:"source_message_id"`
+		}
+		if err := json.Unmarshal(raw, &input); err != nil {
+			return codex.ToolResponse{}, err
+		}
+		if strings.TrimSpace(input.Key) == "" {
+			return codex.ToolResponse{}, errors.New("key is required")
+		}
+		if err := a.store.DeleteFact(ctx, "open_loop", input.Key); err != nil {
+			return codex.ToolResponse{}, err
+		}
+		if strings.TrimSpace(input.Resolution) != "" {
+			if err := a.store.UpsertFact(ctx, memory.Fact{
+				Kind:            "decision",
+				Key:             "close/" + input.Key,
+				Value:           input.Resolution,
+				SourceMessageID: input.SourceMessageID,
+			}); err != nil {
+				return codex.ToolResponse{}, err
+			}
+		}
+		return textTool("closed"), nil
+	})
+
+	registry.Register(codex.ToolSpec{
+		Name:        "memory.write_reflection",
+		Description: "会話や状況の振り返りを reflection として保存する",
+		InputSchema: objectSchema(
+			fieldSchema("content", "string", "振り返り内容"),
+			fieldSchema("channel_id", "string", "関連チャンネル ID"),
+			fieldSchema("period", "string", "summary period。省略時は reflection"),
+		),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+		var input struct {
+			Content   string `json:"content"`
+			ChannelID string `json:"channel_id"`
+			Period    string `json:"period"`
+		}
+		if err := json.Unmarshal(raw, &input); err != nil {
+			return codex.ToolResponse{}, err
+		}
+		if strings.TrimSpace(input.Content) == "" {
+			return codex.ToolResponse{}, errors.New("content is required")
+		}
+		period := strings.TrimSpace(input.Period)
+		if period == "" {
+			period = "reflection"
+		}
+		now := time.Now().UTC()
+		if err := a.store.SaveSummary(ctx, memory.Summary{
+			Period:    period,
+			ChannelID: input.ChannelID,
+			Content:   input.Content,
+			StartsAt:  now,
+			EndsAt:    now,
+			CreatedAt: now,
+		}); err != nil {
+			return codex.ToolResponse{}, err
+		}
+		return textTool("saved"), nil
+	})
+
+	registry.Register(codex.ToolSpec{
+		Name:        "memory.write_growth_log",
+		Description: "成長ログを保存する",
+		InputSchema: objectSchema(
+			fieldSchema("content", "string", "成長内容"),
+			fieldSchema("channel_id", "string", "関連チャンネル ID"),
+		),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+		var input struct {
+			Content   string `json:"content"`
+			ChannelID string `json:"channel_id"`
+		}
+		if err := json.Unmarshal(raw, &input); err != nil {
+			return codex.ToolResponse{}, err
+		}
+		if strings.TrimSpace(input.Content) == "" {
+			return codex.ToolResponse{}, errors.New("content is required")
+		}
+		now := time.Now().UTC()
+		if err := a.store.SaveSummary(ctx, memory.Summary{
+			Period:    "growth",
+			ChannelID: input.ChannelID,
+			Content:   input.Content,
+			StartsAt:  now,
+			EndsAt:    now,
+			CreatedAt: now,
+		}); err != nil {
+			return codex.ToolResponse{}, err
+		}
+		return textTool("saved"), nil
+	})
+
+	registry.Register(codex.ToolSpec{
+		Name:        "memory.write_decision_log",
+		Description: "判断や決定の履歴を decision log として保存する",
+		InputSchema: objectSchema(
+			fieldSchema("key", "string", "decision の一意キー"),
+			fieldSchema("value", "string", "決定内容"),
+			fieldSchema("source_message_id", "string", "元メッセージ ID"),
+		),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+		var input struct {
+			Key             string `json:"key"`
+			Value           string `json:"value"`
+			SourceMessageID string `json:"source_message_id"`
+		}
+		if err := json.Unmarshal(raw, &input); err != nil {
+			return codex.ToolResponse{}, err
+		}
+		if strings.TrimSpace(input.Key) == "" || strings.TrimSpace(input.Value) == "" {
+			return codex.ToolResponse{}, errors.New("key and value are required")
+		}
+		if err := a.store.UpsertFact(ctx, memory.Fact{
+			Kind:            "decision",
+			Key:             input.Key,
+			Value:           input.Value,
+			SourceMessageID: input.SourceMessageID,
+		}); err != nil {
+			return codex.ToolResponse{}, err
+		}
+		return textTool("ok"), nil
+	})
 }
 
 func (a *App) registerJobExtraTools(registry *codex.ToolRegistry) {
@@ -468,9 +714,6 @@ func (a *App) registerDiscordExtraTools(registry *codex.ToolRegistry) {
 		if a.discord == nil {
 			return codex.ToolResponse{}, errors.New("discord is not connected")
 		}
-		if err := a.requireVisibleProgress(ctx, "discord.rename_channel"); err != nil {
-			return codex.ToolResponse{}, err
-		}
 		var input struct {
 			ChannelID string `json:"channel_id"`
 			Name      string `json:"name"`
@@ -495,9 +738,6 @@ func (a *App) registerDiscordExtraTools(registry *codex.ToolRegistry) {
 	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
 		if a.discord == nil {
 			return codex.ToolResponse{}, errors.New("discord is not connected")
-		}
-		if err := a.requireVisibleProgress(ctx, "discord.set_channel_topic"); err != nil {
-			return codex.ToolResponse{}, err
 		}
 		var input struct {
 			ChannelID string `json:"channel_id"`

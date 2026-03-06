@@ -73,6 +73,9 @@ func TestBuildCapabilitiesContextListsRealCapabilities(t *testing.T) {
 	if !strings.Contains(raw, "複数回話してよい") {
 		t.Fatalf("expected multi-message guidance, got %s", raw)
 	}
+	if !strings.Contains(raw, "前置きだけ送って止まらず") {
+		t.Fatalf("expected no-progress-only guidance, got %s", raw)
+	}
 	if !strings.Contains(raw, "溺愛気質") {
 		t.Fatalf("expected doting persona note, got %s", raw)
 	}

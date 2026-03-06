@@ -3,7 +3,6 @@ package bot
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"time"
 
 	"github.com/Sigumaa/yururi_personal/internal/codex"
@@ -42,30 +41,13 @@ func (a *App) afterToolCall(ctx context.Context, toolName string, _ json.RawMess
 }
 
 func requiresVisibleProgress(toolName string) bool {
-	switch toolName {
-	case "discord.create_category", "discord.create_channel", "discord.rename_channel", "discord.set_channel_topic", "discord.move_channel":
-		return true
-	default:
-		return false
-	}
+	return false
 }
 
 func (a *App) requireVisibleProgress(ctx context.Context, toolName string) error {
-	if !requiresVisibleProgress(toolName) {
-		return nil
-	}
-	meta, ok := codex.ToolCallMetaFromContext(ctx)
-	if !ok {
-		return nil
-	}
-	if a.turnHasModelVisible(meta.TurnID) {
-		return nil
-	}
-	channelID, ok := a.channelIDForThread(meta.ThreadID)
-	if !ok || channelID == "" {
-		return nil
-	}
-	return fmt.Errorf("visible progress required before %s: first call %s with a brief update to channel_id=%s, then retry the tool", toolName, codex.ExternalToolName("discord.send_message"), channelID)
+	_ = ctx
+	_ = toolName
+	return nil
 }
 
 func (a *App) channelIDForThread(threadID string) (string, bool) {

@@ -132,6 +132,50 @@ func TestLatestChannelIDForAuthor(t *testing.T) {
 	}
 }
 
+func TestRecentMessagesByAuthor(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "yururi.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	base := time.Now().UTC()
+	for i, tc := range []struct {
+		id        string
+		channelID string
+		authorID  string
+		content   string
+	}{
+		{id: "m1", channelID: "c1", authorID: "owner", content: "first"},
+		{id: "m2", channelID: "c2", authorID: "other", content: "other"},
+		{id: "m3", channelID: "c1", authorID: "owner", content: "second"},
+	} {
+		if err := store.SaveMessage(ctx, Message{
+			ID:          tc.id,
+			ChannelID:   tc.channelID,
+			ChannelName: "chat",
+			AuthorID:    tc.authorID,
+			AuthorName:  tc.authorID,
+			Content:     tc.content,
+			CreatedAt:   base.Add(time.Duration(i) * time.Minute),
+		}); err != nil {
+			t.Fatalf("save message %s: %v", tc.id, err)
+		}
+	}
+
+	got, err := store.RecentMessagesByAuthor(ctx, "owner", "c1", 10)
+	if err != nil {
+		t.Fatalf("recent messages by author: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 owner messages in channel, got %d", len(got))
+	}
+	if got[0].ID != "m3" || got[1].ID != "m1" {
+		t.Fatalf("unexpected order: %#v", got)
+	}
+}
+
 func TestListDeleteFactsAndChannelActivity(t *testing.T) {
 	store, err := Open(filepath.Join(t.TempDir(), "yururi.db"))
 	if err != nil {

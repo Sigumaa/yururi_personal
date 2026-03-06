@@ -116,9 +116,6 @@ func (a *App) composeDecisionReply(ctx context.Context, msg memory.Message, plan
 	case draft == "" && report.HasEffects():
 		a.logger.Debug("compose reply from execution", "channel", msg.ChannelName, "message_id", msg.ID, "reason", "empty_draft_with_effects")
 		return a.composeReplyFromExecution(ctx, msg, planned, report, "")
-	case looksLikePromiseOnly(draft):
-		a.logger.Warn("promise-only draft detected", "channel", msg.ChannelName, "message_id", msg.ID, "draft", previewText(draft, 240))
-		return a.composeReplyFromExecution(ctx, msg, planned, report, draft)
 	default:
 		a.logger.Debug("compose reply used planner draft", "channel", msg.ChannelName, "message_id", msg.ID, "draft_preview", previewText(draft, 240))
 		return draft, nil
@@ -140,10 +137,6 @@ func (a *App) composeReplyFromExecution(ctx context.Context, msg memory.Message,
 	reply := parseAssistantReply(raw)
 	if reply.Action == decision.ActionIgnore {
 		a.logger.Debug("execution reply suppressed", "channel", msg.ChannelName, "message_id", msg.ID, "reason", "assistant_ignore")
-		return "", nil
-	}
-	if looksLikePromiseOnly(reply.Message) {
-		a.logger.Warn("execution reply suppressed promise-only", "channel", msg.ChannelName, "message_id", msg.ID, "reply", previewText(reply.Message, 240))
 		return "", nil
 	}
 	return strings.TrimSpace(reply.Message), nil
@@ -175,10 +168,6 @@ func (a *App) handleJobResult(job jobs.Job, result jobs.Result, runErr error) {
 	reply := parseAssistantReply(raw)
 	if reply.Action == decision.ActionIgnore || strings.TrimSpace(reply.Message) == "" {
 		a.logger.Debug("job follow-up skipped", "job_id", job.ID, "kind", job.Kind, "reason", "assistant_ignore_or_empty")
-		return
-	}
-	if looksLikePromiseOnly(reply.Message) {
-		a.logger.Warn("job follow-up suppressed promise-only reply", "job_id", job.ID, "kind", job.Kind, "reply", reply.Message)
 		return
 	}
 	sentID, err := a.discord.SendMessage(ctx, job.ChannelID, strings.TrimSpace(reply.Message))
