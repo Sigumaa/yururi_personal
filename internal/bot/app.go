@@ -120,6 +120,9 @@ func (a *App) Run(ctx context.Context) error {
 	} else {
 		a.thread = session
 		_ = a.store.SetKV(ctx, "codex.main_thread_id", session.ID)
+		if err := a.primeReferenceDocs(ctx); err != nil {
+			a.logger.Warn("prime reference docs failed", "error", err)
+		}
 	}
 
 	discordClient, err := discordsvc.New(a.cfg.Discord.Token)

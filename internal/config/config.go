@@ -62,6 +62,7 @@ type Paths struct {
 	CodexModelPromptPath string
 	Workspace            string
 	WorkspaceAGENTSPath  string
+	WorkspaceAnyDir      string
 	DataDir              string
 	LogDir               string
 	DBPath               string
@@ -105,6 +106,7 @@ func (c Config) ResolvePaths() Paths {
 		CodexModelPromptPath: filepath.Join(root, "codex-home", "model_instructions.md"),
 		Workspace:            filepath.Join(root, "workspace"),
 		WorkspaceAGENTSPath:  filepath.Join(root, "workspace", "AGENTS.md"),
+		WorkspaceAnyDir:      filepath.Join(root, "workspace", "any"),
 		DataDir:              filepath.Join(root, "data"),
 		LogDir:               filepath.Join(root, "logs"),
 		DBPath:               filepath.Join(root, "data", "yururi.db"),
