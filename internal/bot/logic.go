@@ -117,6 +117,7 @@ func (a *App) runSummaryJob(ctx context.Context, job jobs.Job, period string, st
 		return jobs.Result{NextRunAt: nextRun, Done: done}, nil
 	}
 	a.logger.Info("summary building", "job_id", job.ID, "period", period, "message_count", len(messages))
+	a.logger.Debug("summary source messages", "job_id", job.ID, "period", period, "messages_preview", previewJSON(messages, 1600))
 
 	session, err := a.ensureJobThread(ctx, job)
 	if err != nil {
@@ -181,6 +182,7 @@ messages:
 		a.logger.Warn("summary codex turn failed; using fallback summary", "period", period, "error", err)
 		return fallbackSummary(period, start, end, messages), nil
 	}
+	a.logger.Debug("summary codex output", "period", period, "raw_preview", previewText(raw, 800))
 	var response struct {
 		Summary string `json:"summary"`
 	}
@@ -188,6 +190,7 @@ messages:
 		a.logger.Warn("summary codex output invalid; using fallback summary", "period", period, "error", parseErr)
 		return fallbackSummary(period, start, end, messages), nil
 	}
+	a.logger.Debug("summary final text", "period", period, "summary_preview", previewText(response.Summary, 800))
 	return response.Summary, nil
 }
 

@@ -296,6 +296,7 @@ func (c *Client) runTurn(ctx context.Context, threadID string, prompt string, ou
 		return "", err
 	}
 	c.logger.Info("turn start", "thread_id", threadID, "prompt_bytes", len(prompt), "json_schema", outputSchema != nil)
+	c.logger.Debug("turn prompt", "thread_id", threadID, "prompt_preview", previewText(prompt, 1800), "schema_preview", previewJSON(outputSchema, 800))
 	params := map[string]any{
 		"threadId": threadID,
 		"input": []map[string]any{
@@ -330,6 +331,7 @@ func (c *Client) runTurn(ctx context.Context, threadID string, prompt string, ou
 	if err := c.call(ctx, "turn/start", params, &response); err != nil {
 		return "", err
 	}
+	c.logger.Debug("turn started", "thread_id", threadID, "turn_id", response.Turn.ID)
 
 	waiter := &turnWaiter{
 		threadID:   threadID,
@@ -354,6 +356,7 @@ func (c *Client) runTurn(ctx context.Context, threadID string, prompt string, ou
 			return "", result.Error
 		}
 		c.logger.Info("turn completed", "thread_id", threadID, "turn_id", response.Turn.ID, "response_bytes", len(result.Text), "elapsed", time.Since(waiter.receivedAt))
+		c.logger.Debug("turn output", "thread_id", threadID, "turn_id", response.Turn.ID, "response_preview", previewText(result.Text, 1800))
 		if outputSchema != nil {
 			return normalizeJSONText(result.Text), nil
 		}
@@ -373,6 +376,7 @@ func (c *Client) call(ctx context.Context, method string, params any, out any) e
 		c.stateMu.Unlock()
 	}()
 
+	c.logger.Debug("rpc call start", "method", method, "id", id, "params_preview", previewJSON(params, 1200))
 	if err := c.writeJSON(map[string]any{
 		"jsonrpc": "2.0",
 		"id":      id,
@@ -387,11 +391,14 @@ func (c *Client) call(ctx context.Context, method string, params any, out any) e
 		return ctx.Err()
 	case response := <-ch:
 		if response.Error != nil {
+			c.logger.Warn("rpc call failed", "method", method, "id", id, "error", response.Error.Message, "error_data", previewText(string(response.Error.Data), 1200))
 			return fmt.Errorf("%s: %s", method, response.Error.Message)
 		}
 		if out == nil || len(response.Result) == 0 {
+			c.logger.Debug("rpc call completed", "method", method, "id", id, "result_preview", "")
 			return nil
 		}
+		c.logger.Debug("rpc call completed", "method", method, "id", id, "result_preview", previewText(string(response.Result), 1200))
 		if err := json.Unmarshal(response.Result, out); err != nil {
 			return fmt.Errorf("decode %s response: %w", method, err)
 		}
@@ -493,6 +500,7 @@ func (c *Client) handleServerRequest(rawID json.RawMessage, method string, param
 			})
 			return
 		}
+		c.logger.Debug("codex tool call completed", "tool", request.Tool, "response_preview", previewToolResponse(response, 1200))
 		write(response)
 	case "item/commandExecution/requestApproval":
 		write(map[string]any{"decision": "acceptForSession"})
@@ -549,6 +557,7 @@ func (c *Client) handleNotification(method string, params json.RawMessage) {
 		c.stateMu.Unlock()
 		if waiter != nil {
 			waiter.deltas.WriteString(event.Delta)
+			c.logger.Debug("turn delta", "turn_id", event.TurnID, "delta_bytes", len(event.Delta), "delta_preview", previewText(event.Delta, 240))
 		}
 	case "item/completed":
 		var event struct {
@@ -569,6 +578,7 @@ func (c *Client) handleNotification(method string, params json.RawMessage) {
 		c.stateMu.Unlock()
 		if waiter != nil && strings.TrimSpace(event.Item.Text) != "" {
 			waiter.texts = append(waiter.texts, strings.TrimSpace(event.Item.Text))
+			c.logger.Debug("turn item completed", "turn_id", event.TurnID, "item_type", event.Item.Type, "text_preview", previewText(event.Item.Text, 800))
 		}
 	case "turn/completed":
 		var event struct {
@@ -590,9 +600,11 @@ func (c *Client) handleNotification(method string, params json.RawMessage) {
 			return
 		}
 		if event.Turn.Error != nil {
+			c.logger.Warn("turn completed with error", "turn_id", event.Turn.ID, "status", event.Turn.Status, "error", event.Turn.Error.Message)
 			waiter.completed <- turnResult{Error: errors.New(event.Turn.Error.Message)}
 			return
 		}
+		c.logger.Debug("turn completion notification", "turn_id", event.Turn.ID, "status", event.Turn.Status)
 		waiter.completed <- turnResult{Text: resolveTurnText(waiter)}
 	case "error":
 		var event map[string]any

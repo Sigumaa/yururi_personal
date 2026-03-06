@@ -40,7 +40,7 @@ func run() error {
 		return err
 	}
 
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	app, err := bot.New(cfg, logger)
 	if err != nil {
 		return err

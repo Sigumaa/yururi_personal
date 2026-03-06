@@ -2,6 +2,8 @@ package bot
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -71,7 +73,9 @@ func TestThreadLockSerializesSameThreadOnly(t *testing.T) {
 }
 
 func TestEnsureJobThreadUsesStoredThreadID(t *testing.T) {
-	app := &App{}
+	app := &App{
+		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
 	job := jobs.Job{
 		Payload: map[string]any{
 			"thread_id": "thread-background",

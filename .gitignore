@@ -3,6 +3,7 @@ coverage.out
 *.log
 *.tmp
 *.db
+tmp_*.go
 
 config/local.toml
 any/*

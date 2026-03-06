@@ -153,10 +153,19 @@ func (s *Scheduler) tick(ctx context.Context) error {
 
 func (s *Scheduler) notify(job Job, result Result, err error) {
 	if s.observer == nil {
+		if s.logger != nil {
+			s.logger.Debug("scheduler notify skipped", "job_id", job.ID, "kind", job.Kind, "reason", "observer_nil")
+		}
 		return
 	}
 	if err == nil && strings.TrimSpace(result.Details) == "" {
+		if s.logger != nil {
+			s.logger.Debug("scheduler notify skipped", "job_id", job.ID, "kind", job.Kind, "reason", "empty_details")
+		}
 		return
+	}
+	if s.logger != nil {
+		s.logger.Debug("scheduler notify dispatch", "job_id", job.ID, "kind", job.Kind, "done", result.Done, "already_notified", result.AlreadyNotified, "details", result.Details, "error", err)
 	}
 	go s.observer(job, result, err)
 }

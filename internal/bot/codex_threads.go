@@ -27,20 +27,25 @@ func (a *App) threadLock(threadID string) *sync.Mutex {
 
 func (a *App) runThreadTurn(ctx context.Context, threadID string, prompt string) (string, error) {
 	lock := a.threadLock(threadID)
+	a.logger.Debug("thread lock wait", "thread_id", threadID, "mode", "text", "prompt_preview", previewText(prompt, 800))
 	lock.Lock()
 	defer lock.Unlock()
+	a.logger.Debug("thread lock acquired", "thread_id", threadID, "mode", "text")
 	return a.codex.RunTurn(ctx, threadID, prompt)
 }
 
 func (a *App) runThreadJSONTurn(ctx context.Context, threadID string, prompt string, schema map[string]any) (string, error) {
 	lock := a.threadLock(threadID)
+	a.logger.Debug("thread lock wait", "thread_id", threadID, "mode", "json", "prompt_preview", previewText(prompt, 800), "schema_preview", previewJSON(schema, 600))
 	lock.Lock()
 	defer lock.Unlock()
+	a.logger.Debug("thread lock acquired", "thread_id", threadID, "mode", "json")
 	return a.codex.RunJSONTurn(ctx, threadID, prompt, schema)
 }
 
 func (a *App) ensureJobThread(ctx context.Context, job jobs.Job) (codex.ThreadSession, error) {
 	if threadID, _ := job.Payload["thread_id"].(string); threadID != "" {
+		a.logger.Debug("job thread reused", "job_id", job.ID, "thread_id", threadID)
 		return codex.ThreadSession{ID: threadID}, nil
 	}
 

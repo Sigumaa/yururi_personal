@@ -62,6 +62,8 @@ func (a *App) primeThreadContext(ctx context.Context, threadID string, bundle st
 		return nil
 	}
 
+	a.logger.Info("prime thread context start", "thread_id", threadID, "bundle_bytes", len(bundle))
+	a.logger.Debug("prime thread context bundle", "thread_id", threadID, "bundle_preview", previewText(bundle, 1800))
 	prompt := fmt.Sprintf(`これはユーザーへ見せない内部向けの context refresh です。
 以下の資料は、現在の bot の実能力と振る舞い方針だけをまとめたものです。
 古い思い込みや未実装の能力より、この資料を優先してください。
@@ -72,6 +74,11 @@ func (a *App) primeThreadContext(ctx context.Context, threadID string, bundle st
 %s`, bundle)
 
 	_, err := a.runThreadTurn(ctx, threadID, prompt)
+	if err != nil {
+		a.logger.Warn("prime thread context failed", "thread_id", threadID, "error", err)
+		return err
+	}
+	a.logger.Info("prime thread context completed", "thread_id", threadID)
 	return err
 }
 

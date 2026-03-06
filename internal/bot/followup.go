@@ -71,12 +71,16 @@ func (a *App) composeDecisionReply(ctx context.Context, msg memory.Message, plan
 	draft := strings.TrimSpace(planned.Message)
 	switch {
 	case draft == "" && !report.HasEffects():
+		a.logger.Debug("compose reply skipped", "channel", msg.ChannelName, "message_id", msg.ID, "reason", "empty_draft_no_effects")
 		return "", nil
 	case draft == "" && report.HasEffects():
+		a.logger.Debug("compose reply from execution", "channel", msg.ChannelName, "message_id", msg.ID, "reason", "empty_draft_with_effects")
 		return a.composeReplyFromExecution(ctx, msg, planned, report, "")
 	case looksLikePromiseOnly(draft):
+		a.logger.Warn("promise-only draft detected", "channel", msg.ChannelName, "message_id", msg.ID, "draft", previewText(draft, 240))
 		return a.composeReplyFromExecution(ctx, msg, planned, report, draft)
 	default:
+		a.logger.Debug("compose reply used planner draft", "channel", msg.ChannelName, "message_id", msg.ID, "draft_preview", previewText(draft, 240))
 		return draft, nil
 	}
 }
@@ -87,15 +91,19 @@ func (a *App) composeReplyFromExecution(ctx context.Context, msg memory.Message,
 	}
 
 	prompt := buildExecutionReplyPrompt(msg, planned, report, draft)
+	a.logger.Debug("execution reply prompt", "thread_id", a.thread.ID, "channel", msg.ChannelName, "message_id", msg.ID, "prompt_preview", previewText(prompt, 1400))
 	raw, err := a.runThreadTurn(ctx, a.thread.ID, prompt)
 	if err != nil {
 		return "", fmt.Errorf("compose execution reply: %w", err)
 	}
+	a.logger.Debug("execution reply output", "thread_id", a.thread.ID, "channel", msg.ChannelName, "message_id", msg.ID, "raw_preview", previewText(raw, 800))
 	reply := parseAssistantReply(raw)
 	if reply.Action == decision.ActionIgnore {
+		a.logger.Debug("execution reply suppressed", "channel", msg.ChannelName, "message_id", msg.ID, "reason", "assistant_ignore")
 		return "", nil
 	}
 	if looksLikePromiseOnly(reply.Message) {
+		a.logger.Warn("execution reply suppressed promise-only", "channel", msg.ChannelName, "message_id", msg.ID, "reply", previewText(reply.Message, 240))
 		return "", nil
 	}
 	return strings.TrimSpace(reply.Message), nil
@@ -103,19 +111,24 @@ func (a *App) composeReplyFromExecution(ctx context.Context, msg memory.Message,
 
 func (a *App) handleJobResult(job jobs.Job, result jobs.Result, runErr error) {
 	if a.thread.ID == "" || a.discord == nil || strings.TrimSpace(job.ChannelID) == "" {
+		a.logger.Debug("job observer skipped", "job_id", job.ID, "kind", job.Kind, "reason", "missing_main_thread_or_channel")
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 
+	a.logger.Info("job observer fired", "job_id", job.ID, "kind", job.Kind, "done", result.Done, "already_notified", result.AlreadyNotified, "details_preview", previewText(result.Details, 320), "error", runErr)
 	prompt := buildJobFollowUpPrompt(job, result, runErr)
+	a.logger.Debug("job follow-up prompt", "job_id", job.ID, "kind", job.Kind, "prompt_preview", previewText(prompt, 1400))
 	raw, err := a.runThreadTurn(ctx, a.thread.ID, prompt)
 	if err != nil {
 		a.logger.Warn("job follow-up turn failed", "job_id", job.ID, "kind", job.Kind, "error", err)
 		return
 	}
+	a.logger.Debug("job follow-up output", "job_id", job.ID, "kind", job.Kind, "raw_preview", previewText(raw, 800))
 	reply := parseAssistantReply(raw)
 	if reply.Action == decision.ActionIgnore || strings.TrimSpace(reply.Message) == "" {
+		a.logger.Debug("job follow-up skipped", "job_id", job.ID, "kind", job.Kind, "reason", "assistant_ignore_or_empty")
 		return
 	}
 	if looksLikePromiseOnly(reply.Message) {
@@ -152,6 +165,7 @@ func (a *App) handleBackgroundCodexTaskJob(ctx context.Context, job jobs.Job) (j
 		return jobs.Result{Done: true}, err
 	}
 	a.logger.Info("background codex task completed", "job_id", job.ID, "thread_id", session.ID, "response_bytes", len(raw))
+	a.logger.Debug("background codex task output", "job_id", job.ID, "thread_id", session.ID, "response_preview", previewText(raw, 1600))
 	return jobs.Result{
 		NextRunAt: time.Now().UTC(),
 		Done:      true,

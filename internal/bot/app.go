@@ -186,7 +186,7 @@ func (a *App) processMessage(session *discordgo.Session, event *discordgo.Messag
 			"attachments": attachmentURLs(event.Attachments),
 		},
 	}
-	a.logger.Info("message received", "channel", channelName, "channel_id", event.ChannelID, "author", event.Author.Username, "message_id", event.ID, "attachments", len(event.Attachments))
+	a.logger.Info("message received", "channel", channelName, "channel_id", event.ChannelID, "author", event.Author.Username, "message_id", event.ID, "attachments", len(event.Attachments), "content_preview", previewText(event.Content, 240))
 	if err := a.store.SaveMessage(ctx, msg); err != nil {
 		a.logger.Error("save message failed", "error", err)
 		return
@@ -201,19 +201,22 @@ func (a *App) processMessage(session *discordgo.Session, event *discordgo.Messag
 	recent, _ := a.store.RecentMessages(ctx, event.ChannelID, 12)
 	facts, _ := a.store.SearchFacts(ctx, channelName, 8)
 	a.logger.Info("message context ready", "channel", channelName, "recent_messages", len(recent), "related_facts", len(facts), "profile_kind", profile.Kind)
+	a.logger.Debug("message context detail", "channel", channelName, "profile", previewJSON(profile, 320), "recent_preview", previewJSON(recent, 900), "fact_preview", previewJSON(facts, 900))
 
 	decisionValue, err := a.planDecision(ctx, msg, profile, recent, facts)
 	if err != nil {
 		a.logger.Error("plan failed", "error", err)
 		return
 	}
-	a.logger.Info("decision ready", "channel", channelName, "action", decisionValue.Action, "reply_len", len(strings.TrimSpace(decisionValue.Message)))
+	a.logger.Info("decision ready", "channel", channelName, "action", decisionValue.Action, "reply_len", len(strings.TrimSpace(decisionValue.Message)), "reason", decisionValue.Reason, "confidence", decisionValue.Confidence, "message_preview", previewText(decisionValue.Message, 240))
+	a.logger.Debug("decision detail", "channel", channelName, "decision", previewJSON(decisionValue, 1600))
 
 	report, err := a.executeDecision(ctx, msg, decisionValue)
 	if err != nil {
 		a.logger.Error("execute decision failed", "error", err)
 		return
 	}
+	a.logger.Debug("execution report", "channel", channelName, "report", previewJSON(report, 1200))
 
 	reply, err := a.composeDecisionReply(ctx, msg, decisionValue, report)
 	if err != nil {
@@ -221,6 +224,7 @@ func (a *App) processMessage(session *discordgo.Session, event *discordgo.Messag
 		return
 	}
 	if strings.TrimSpace(reply) == "" {
+		a.logger.Info("reply skipped", "channel", channelName, "message_id", event.ID, "reason", "empty_or_no_reply")
 		return
 	}
 	sentID, err := a.discord.SendMessage(ctx, msg.ChannelID, reply)
@@ -291,18 +295,22 @@ func (a *App) planDecision(ctx context.Context, msg memory.Message, profile memo
 
 	prompt := buildPlannerPrompt(msg, profile, recent, facts, a.tools.Specs(), a.discordSelfMention())
 	a.logger.Info("codex turn start", "thread_id", a.thread.ID, "channel", msg.ChannelName, "message_id", msg.ID, "prompt_bytes", len(prompt))
+	a.logger.Debug("codex planner prompt", "thread_id", a.thread.ID, "channel", msg.ChannelName, "message_id", msg.ID, "prompt_preview", previewText(prompt, 1600))
 	raw, err := a.runThreadJSONTurn(ctx, a.thread.ID, prompt, decision.OutputSchema())
 	if err != nil {
 		a.logger.Warn("codex turn failed", "channel", msg.ChannelName, "message_id", msg.ID, "error", err)
 		return decision.ReplyDecision{}, fmt.Errorf("run codex turn: %w", err)
 	}
 	a.logger.Info("codex turn completed", "channel", msg.ChannelName, "message_id", msg.ID, "response_bytes", len(raw))
+	a.logger.Debug("codex planner output", "channel", msg.ChannelName, "message_id", msg.ID, "raw", previewText(raw, 1600))
 	return parseDecisionPlan(raw)
 }
 
 func (a *App) executeDecision(ctx context.Context, msg memory.Message, selected decision.ReplyDecision) (executionReport, error) {
 	report := executionReport{}
+	a.logger.Debug("execute decision start", "channel", msg.ChannelName, "message_id", msg.ID, "memory_writes", len(selected.MemoryWrites), "actions", len(selected.Actions), "jobs", len(selected.Jobs))
 	for _, write := range selected.MemoryWrites {
+		a.logger.Debug("memory write start", "kind", write.Kind, "key", write.Key, "value_preview", previewText(write.Value, 240))
 		if err := a.store.UpsertFact(ctx, memory.Fact{
 			Kind:            write.Kind,
 			Key:             write.Key,
@@ -315,6 +323,7 @@ func (a *App) executeDecision(ctx context.Context, msg memory.Message, selected 
 	}
 
 	for _, action := range selected.Actions {
+		a.logger.Debug("server action start", "action", previewJSON(action, 600))
 		summary, err := a.executeAction(ctx, action)
 		if err != nil {
 			return executionReport{}, err
@@ -323,6 +332,7 @@ func (a *App) executeDecision(ctx context.Context, msg memory.Message, selected 
 	}
 
 	for _, req := range selected.Jobs {
+		a.logger.Debug("job request start", "job_request", previewJSON(req, 900))
 		summary, err := a.enqueueJob(ctx, msg, req)
 		if err != nil {
 			return executionReport{}, err
@@ -333,6 +343,7 @@ func (a *App) executeDecision(ctx context.Context, msg memory.Message, selected 
 }
 
 func (a *App) executeAction(ctx context.Context, action decision.ServerAction) (string, error) {
+	a.logger.Debug("execute action", "type", action.Type, "action", previewJSON(action, 600))
 	switch action.Type {
 	case "create_category":
 		channel, err := a.discord.EnsureCategory(ctx, a.cfg.Discord.GuildID, action.Name)
@@ -398,7 +409,8 @@ func (a *App) enqueueJob(ctx context.Context, msg memory.Message, req decision.J
 	job.Payload["origin_message_id"] = msg.ID
 	job.Payload["origin_channel_name"] = msg.ChannelName
 	job.Payload["origin_author_name"] = msg.AuthorName
-	a.logger.Info("job enqueued", "job_id", job.ID, "kind", job.Kind, "channel_id", job.ChannelID, "schedule", job.ScheduleExpr)
+	a.logger.Info("job enqueued", "job_id", job.ID, "kind", job.Kind, "channel_id", job.ChannelID, "schedule", job.ScheduleExpr, "title", job.Title)
+	a.logger.Debug("job payload", "job_id", job.ID, "payload", previewJSON(job.Payload, 1200))
 	if err := a.store.UpsertJob(ctx, job); err != nil {
 		return "", err
 	}
@@ -411,6 +423,7 @@ func (a *App) resolveChannelProfile(ctx context.Context, channelID string, chann
 		return memory.ChannelProfile{}, err
 	}
 	if ok {
+		a.logger.Debug("channel profile reused", "channel", channelName, "channel_id", channelID, "profile", previewJSON(profile, 320))
 		return profile, nil
 	}
 
