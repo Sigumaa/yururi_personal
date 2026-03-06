@@ -100,6 +100,9 @@ func (a *App) Bootstrap(ctx context.Context) error {
 	if _, err := runtimecfg.EnsureLayout(a.cfg); err != nil {
 		return err
 	}
+	if err := a.syncBotContext(); err != nil {
+		return err
+	}
 	if _, err := a.codex.Bootstrap(ctx); err != nil {
 		a.logger.Warn("codex bootstrap skipped", "error", err)
 	}
@@ -120,8 +123,8 @@ func (a *App) Run(ctx context.Context) error {
 	} else {
 		a.thread = session
 		_ = a.store.SetKV(ctx, "codex.main_thread_id", session.ID)
-		if err := a.primeReferenceDocs(ctx); err != nil {
-			a.logger.Warn("prime reference docs failed", "error", err)
+		if err := a.primeBotContext(ctx); err != nil {
+			a.logger.Warn("prime bot context failed", "error", err)
 		}
 	}
 

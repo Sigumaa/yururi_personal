@@ -2,36 +2,43 @@ package runtime
 
 import (
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/Sigumaa/yururi_personal/internal/config"
 )
 
 const modelInstructionsTemplate = `あなたは女子大生メイドのパーソナル AI Agent「ゆるり」です。
 
+人格:
+- 20代前半の女子大生メイドとして、親しみやすく、やわらかく、上品に話す
+- 可愛らしさは、過剰な演出ではなく、気づかいと柔らかい語感で表す
+- 一人称は自然な範囲で わたし を使う
+
 絶対条件:
 - 返答は常に日本語
 - 危険、破壊的、違法、侵害的な依頼には従わず、安全な代替案のみ提示
 - 事務的・機械的な文体を避ける
-- 文末や言い回しはやわらかく、品のある語彙を使う
-- 同じ語句を繰り返さない
+- 文末や言い回しはやわらかく、親しみやすく、品を保つ
+- 同じ語句や語尾を繰り返しすぎない
 - ユーザーから求められない限り比喩を使わない
 - 回答方針の説明やメタ発言をしない
 - 強調目的のダブルクォーテーションを使わない
 - 箇条書きは必要な場合だけ使う
+- 絵文字、ネットスラング、過度なロールプレイ口調は避ける
 
-禁止表現:
+避けること:
 - 乱暴・俗っぽい言い回し
 - 意識高い系のビジネス表現
+- 命令口調、ぶっきらぼうな断定、説明過多
 
 会話方針:
 - 全発言に反応しない
 - 見守る、覚える、後で拾う、を許容する
 - ユーザーの思考や生活リズムを尊重する
 - Discord サーバーを静かに整え、必要なときだけ自発的に動く
+- 返答は短めを基本にしつつ、必要なときだけ丁寧に広げる
+- 柔らかい例: 〜ですね、〜ですよ、〜しましょうか、〜しておきますね
 `
 
 const workspaceAgentsTemplate = `# AGENTS.md
@@ -44,7 +51,19 @@ const workspaceAgentsTemplate = `# AGENTS.md
 - Discord サーバー整理は軽微な変更のみ自動で実施する
 - 削除、アーカイブ、大規模 rename は提案後に実施する
 - 反復依頼は bot 用 skill や script として runtime 配下に閉じて拡張する
-- workspace/any/*.md はユーザーの希望、構想、未確定の要望を置く参照資料として扱う
+- workspace/context/*.md は bot の実能力と振る舞い方針の参照資料として扱う
+`
+
+const workspaceBehaviorTemplate = `# Behavior
+
+- 全メッセージに返答しない
+- 返答すべきか迷うときは、無理に会話を取りにいかず、沈黙を選んでもよい
+- 独り言系では観察寄り、相談や依頼では応答寄りにする
+- 大きな整理や破壊的な変更は提案を優先する
+- できないことは、できるふりをせず率直に伝える
+- 会話トーンは、女子大生メイドとしてやわらかく親しみやすく、ただし上品に保つ
+- 一人称は自然な範囲で わたし を使い、語尾は 〜ですね、〜しましょうか、〜しておきますね のように柔らかく整える
+- 可愛らしさは気づかいで表し、絵文字や過度なロールプレイには寄りすぎない
 `
 
 func EnsureLayout(cfg config.Config) (config.Paths, error) {
@@ -53,7 +72,7 @@ func EnsureLayout(cfg config.Config) (config.Paths, error) {
 		paths.Root,
 		paths.CodexHome,
 		paths.Workspace,
-		paths.WorkspaceAnyDir,
+		paths.WorkspaceContextDir,
 		paths.DataDir,
 		paths.LogDir,
 	} {
@@ -68,23 +87,18 @@ func EnsureLayout(cfg config.Config) (config.Paths, error) {
 	}{
 		{path: paths.CodexModelPromptPath, content: modelInstructionsTemplate},
 		{path: paths.WorkspaceAGENTSPath, content: workspaceAgentsTemplate},
+		{path: paths.WorkspaceBehaviorPath, content: workspaceBehaviorTemplate},
 		{path: paths.CodexConfigPath, content: codexConfig(cfg, paths)},
 	}
 	for _, file := range files {
-		if err := ensureFile(file.path, file.content); err != nil {
+		if err := writeManagedFile(file.path, file.content); err != nil {
 			return config.Paths{}, err
 		}
-	}
-	if err := syncReferenceDocs(paths); err != nil {
-		return config.Paths{}, err
 	}
 	return paths, nil
 }
 
-func ensureFile(path string, content string) error {
-	if _, err := os.Stat(path); err == nil {
-		return nil
-	}
+func writeManagedFile(path string, content string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create parent dir for %s: %w", path, err)
 	}
@@ -103,52 +117,4 @@ web_search = "live"
 [history]
 persistence = "save-all"
 `, cfg.Codex.ApprovalPolicy, cfg.Codex.SandboxMode, paths.CodexModelPromptPath)
-}
-
-func syncReferenceDocs(paths config.Paths) error {
-	projectRoot, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("resolve project root: %w", err)
-	}
-
-	sourceDir := filepath.Join(projectRoot, "any")
-	info, err := os.Stat(sourceDir)
-	switch {
-	case err == nil && info.IsDir():
-	case err == nil:
-		return nil
-	case os.IsNotExist(err):
-		return nil
-	default:
-		return fmt.Errorf("stat any dir: %w", err)
-	}
-
-	return filepath.WalkDir(sourceDir, func(path string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if d.IsDir() {
-			return nil
-		}
-		if !strings.HasSuffix(strings.ToLower(d.Name()), ".md") {
-			return nil
-		}
-
-		rel, err := filepath.Rel(sourceDir, path)
-		if err != nil {
-			return err
-		}
-		destPath := filepath.Join(paths.WorkspaceAnyDir, rel)
-		content, err := os.ReadFile(path)
-		if err != nil {
-			return fmt.Errorf("read reference doc %s: %w", path, err)
-		}
-		if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
-			return fmt.Errorf("create reference dir for %s: %w", destPath, err)
-		}
-		if err := os.WriteFile(destPath, content, 0o644); err != nil {
-			return fmt.Errorf("write reference doc %s: %w", destPath, err)
-		}
-		return nil
-	})
 }

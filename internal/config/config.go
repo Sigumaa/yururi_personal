@@ -56,16 +56,18 @@ type BehaviorConfig struct {
 }
 
 type Paths struct {
-	Root                 string
-	CodexHome            string
-	CodexConfigPath      string
-	CodexModelPromptPath string
-	Workspace            string
-	WorkspaceAGENTSPath  string
-	WorkspaceAnyDir      string
-	DataDir              string
-	LogDir               string
-	DBPath               string
+	Root                      string
+	CodexHome                 string
+	CodexConfigPath           string
+	CodexModelPromptPath      string
+	Workspace                 string
+	WorkspaceAGENTSPath       string
+	WorkspaceContextDir       string
+	WorkspaceBehaviorPath     string
+	WorkspaceCapabilitiesPath string
+	DataDir                   string
+	LogDir                    string
+	DBPath                    string
 }
 
 func Load(path string) (Config, error) {
@@ -100,16 +102,18 @@ func (c Config) Location() (*time.Location, error) {
 func (c Config) ResolvePaths() Paths {
 	root := c.Runtime.Root
 	return Paths{
-		Root:                 root,
-		CodexHome:            filepath.Join(root, "codex-home"),
-		CodexConfigPath:      filepath.Join(root, "codex-home", "config.toml"),
-		CodexModelPromptPath: filepath.Join(root, "codex-home", "model_instructions.md"),
-		Workspace:            filepath.Join(root, "workspace"),
-		WorkspaceAGENTSPath:  filepath.Join(root, "workspace", "AGENTS.md"),
-		WorkspaceAnyDir:      filepath.Join(root, "workspace", "any"),
-		DataDir:              filepath.Join(root, "data"),
-		LogDir:               filepath.Join(root, "logs"),
-		DBPath:               filepath.Join(root, "data", "yururi.db"),
+		Root:                      root,
+		CodexHome:                 filepath.Join(root, "codex-home"),
+		CodexConfigPath:           filepath.Join(root, "codex-home", "config.toml"),
+		CodexModelPromptPath:      filepath.Join(root, "codex-home", "model_instructions.md"),
+		Workspace:                 filepath.Join(root, "workspace"),
+		WorkspaceAGENTSPath:       filepath.Join(root, "workspace", "AGENTS.md"),
+		WorkspaceContextDir:       filepath.Join(root, "workspace", "context"),
+		WorkspaceBehaviorPath:     filepath.Join(root, "workspace", "context", "behavior.md"),
+		WorkspaceCapabilitiesPath: filepath.Join(root, "workspace", "context", "capabilities.md"),
+		DataDir:                   filepath.Join(root, "data"),
+		LogDir:                    filepath.Join(root, "logs"),
+		DBPath:                    filepath.Join(root, "data", "yururi.db"),
 	}
 }
 

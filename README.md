@@ -11,7 +11,7 @@ Discord 上で動くパーソナル AI Agent `ゆるり` の実装。
 - bot 専用 `CODEX_HOME` と bot 専用 workspace を分離
 - 短期記憶、長期記憶、定期ジョブ、自律通知を内包
 - 起動時にチャンネルやカテゴリを自動作成しない
-- `any/*.md` を reference docs として bot workspace へ同期する
+- `runtime/workspace/context/` に bot 向けの実能力と振る舞い方針を生成する
 
 ## Commands
 
