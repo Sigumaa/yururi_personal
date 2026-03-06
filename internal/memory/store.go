@@ -211,6 +211,23 @@ func (s *Store) RecentMessages(ctx context.Context, channelID string, limit int)
 	return out, rows.Err()
 }
 
+func (s *Store) LatestChannelIDForAuthor(ctx context.Context, authorID string) (string, bool, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT channel_id
+		FROM raw_messages
+		WHERE author_id = ?
+		ORDER BY created_at DESC
+		LIMIT 1
+	`, authorID)
+	var channelID string
+	if err := row.Scan(&channelID); errorsIsNoRows(err) {
+		return "", false, nil
+	} else if err != nil {
+		return "", false, fmt.Errorf("latest channel for author: %w", err)
+	}
+	return channelID, true, nil
+}
+
 func (s *Store) SearchMessages(ctx context.Context, query string, limit int) ([]Message, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {

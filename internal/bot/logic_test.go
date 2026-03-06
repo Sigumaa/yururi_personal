@@ -4,39 +4,22 @@ import (
 	"testing"
 
 	"github.com/Sigumaa/yururi_personal/internal/decision"
-	"github.com/Sigumaa/yururi_personal/internal/memory"
 )
 
-func TestFallbackDecisionSchedulesReleaseWatch(t *testing.T) {
-	decisionValue, ok := fallbackDecision(memory.Message{
-		Content:     "codex の安定リリースが出たら知らせてほしい",
-		ChannelName: "chat",
-	}, memory.ChannelProfile{Name: "chat", Kind: "conversation"}, "")
-	if !ok {
-		t.Fatal("expected fallback decision")
-	}
-	if decisionValue.Action != decision.ActionSchedule {
-		t.Fatalf("expected schedule action, got %s", decisionValue.Action)
-	}
-	if len(decisionValue.Jobs) != 1 || decisionValue.Jobs[0].Kind != "codex_release_watch" {
-		t.Fatalf("unexpected jobs: %#v", decisionValue.Jobs)
+func TestParseAssistantReplyNoReply(t *testing.T) {
+	got := parseAssistantReply(noReplyToken)
+	if got.Action != decision.ActionIgnore {
+		t.Fatalf("expected ignore, got %s", got.Action)
 	}
 }
 
-func TestFallbackDecisionIgnoresMonologue(t *testing.T) {
-	decisionValue, ok := fallbackDecision(memory.Message{
-		ID:          "m1",
-		Content:     "今日は少し考えごとが多い",
-		ChannelName: "monologue",
-	}, memory.ChannelProfile{Name: "monologue", Kind: "monologue"}, "")
-	if !ok {
-		t.Fatal("expected fallback decision")
+func TestParseAssistantReplyText(t *testing.T) {
+	got := parseAssistantReply("こんにちは")
+	if got.Action != decision.ActionReply {
+		t.Fatalf("expected reply, got %s", got.Action)
 	}
-	if decisionValue.Action != decision.ActionIgnore {
-		t.Fatalf("expected ignore, got %s", decisionValue.Action)
-	}
-	if len(decisionValue.MemoryWrites) == 0 {
-		t.Fatal("expected memory write for monologue")
+	if got.Message != "こんにちは" {
+		t.Fatalf("unexpected message: %s", got.Message)
 	}
 }
 

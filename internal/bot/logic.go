@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -16,81 +15,22 @@ import (
 	"github.com/Sigumaa/yururi_personal/internal/memory"
 )
 
-var (
-	releaseWatchPattern   = regexp.MustCompile(`(?i)(codex).*(安定|stable).*(リリース|release)|(安定|stable).*(codex).*(知らせ|通知|monitor|watch)`)
-	channelRequestPattern = regexp.MustCompile(`(?i)(?:チャンネル|channel).*(?:` + "`" + `|「|")(.*?)(?:` + "`" + `|」|")`)
-)
+const noReplyToken = "<NO_REPLY>"
 
-func fallbackDecision(msg memory.Message, profile memory.ChannelProfile, mention string) (decision.ReplyDecision, bool) {
-	content := strings.TrimSpace(msg.Content)
-	lower := strings.ToLower(content)
-	direct := strings.Contains(content, "ゆるり") || (mention != "" && strings.Contains(content, mention))
-
-	if releaseWatchPattern.MatchString(content) {
-		return decision.ReplyDecision{
-			Action:  decision.ActionSchedule,
-			Reason:  "release watch request",
-			Message: "承知しました。Codex の安定リリースを見張って、動きがあればお知らせしますね。",
-			Jobs: []decision.JobRequest{
-				{
-					Kind:        "codex_release_watch",
-					Title:       "Codex stable release watch",
-					Description: "watch stable releases for openai/codex",
-					Schedule:    "6h",
-					Payload: map[string]any{
-						"repo": "openai/codex",
-					},
-				},
-			},
-		}, true
-	}
-
-	if matches := channelRequestPattern.FindStringSubmatch(content); len(matches) == 2 {
-		name := sanitizeChannelName(matches[1])
-		return decision.ReplyDecision{
-			Action: decision.ActionAct,
-			Reason: "channel creation request",
-			Actions: []decision.ServerAction{
-				{
-					Type:             "create_channel",
-					Name:             name,
-					AnnouncementText: "こちらの話題用に整えておきますね。",
-				},
-			},
-		}, true
-	}
-
-	if profile.Kind == "monologue" && !direct {
+func parseAssistantReply(raw string) decision.ReplyDecision {
+	trimmed := strings.TrimSpace(raw)
+	switch {
+	case trimmed == "", strings.EqualFold(trimmed, noReplyToken):
 		return decision.ReplyDecision{
 			Action: decision.ActionIgnore,
-			Reason: "monologue observation",
-			MemoryWrites: []decision.MemoryWrite{
-				{
-					Kind:  "monologue",
-					Key:   msg.ChannelName + ":" + msg.ID,
-					Value: content,
-				},
-			},
-		}, true
-	}
-
-	if direct || strings.Contains(lower, "?") || strings.Contains(content, "？") {
+			Reason: "codex selected silence",
+		}
+	default:
 		return decision.ReplyDecision{
 			Action:  decision.ActionReply,
-			Reason:  "direct conversation fallback",
-			Message: "うん、見てますよ。必要そうなところから順に手をつけますね。",
-		}, true
-	}
-	return decision.ReplyDecision{}, false
-}
-
-func fallbackDecisionOnly(msg memory.Message, profile memory.ChannelProfile, mention string) decision.ReplyDecision {
-	if decisionValue, ok := fallbackDecision(msg, profile, mention); ok {
-		return decisionValue
-	}
-	return decision.ReplyDecision{
-		Action: decision.ActionIgnore,
-		Reason: "fallback default ignore",
+			Reason:  "codex text reply",
+			Message: trimmed,
+		}
 	}
 }
 
@@ -221,12 +161,14 @@ messages:
 	defer a.codexMu.Unlock()
 	raw, err := a.codex.RunJSONTurn(ctx, a.thread.ID, prompt, schema)
 	if err != nil {
+		a.logger.Warn("summary codex turn failed; using fallback summary", "period", period, "error", err)
 		return fallbackSummary(period, start, end, messages), nil
 	}
 	var response struct {
 		Summary string `json:"summary"`
 	}
-	if err := json.Unmarshal([]byte(raw), &response); err != nil || strings.TrimSpace(response.Summary) == "" {
+	if parseErr := json.Unmarshal([]byte(raw), &response); parseErr != nil || strings.TrimSpace(response.Summary) == "" {
+		a.logger.Warn("summary codex output invalid; using fallback summary", "period", period, "error", parseErr)
 		return fallbackSummary(period, start, end, messages), nil
 	}
 	return response.Summary, nil

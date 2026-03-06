@@ -79,6 +79,7 @@ type turnWaiter struct {
 	threadID   string
 	turnID     string
 	deltas     strings.Builder
+	texts      []string
 	completed  chan turnResult
 	receivedAt time.Time
 }
@@ -282,7 +283,15 @@ func (c *Client) ListApps(ctx context.Context) ([]AppEntry, error) {
 	return response.Data, nil
 }
 
+func (c *Client) RunTurn(ctx context.Context, threadID string, prompt string) (string, error) {
+	return c.runTurn(ctx, threadID, prompt, nil)
+}
+
 func (c *Client) RunJSONTurn(ctx context.Context, threadID string, prompt string, outputSchema map[string]any) (string, error) {
+	return c.runTurn(ctx, threadID, prompt, outputSchema)
+}
+
+func (c *Client) runTurn(ctx context.Context, threadID string, prompt string, outputSchema map[string]any) (string, error) {
 	if err := c.Start(ctx); err != nil {
 		return "", err
 	}
@@ -298,7 +307,9 @@ func (c *Client) RunJSONTurn(ctx context.Context, threadID string, prompt string
 		"sandboxPolicy": map[string]any{
 			"type": "dangerFullAccess",
 		},
-		"outputSchema": outputSchema,
+	}
+	if outputSchema != nil {
+		params["outputSchema"] = outputSchema
 	}
 	if c.cfg.Codex.Model != "" {
 		params["model"] = c.cfg.Codex.Model
@@ -341,7 +352,10 @@ func (c *Client) RunJSONTurn(ctx context.Context, threadID string, prompt string
 		if result.Error != nil {
 			return "", result.Error
 		}
-		return normalizeJSONText(result.Text), nil
+		if outputSchema != nil {
+			return normalizeJSONText(result.Text), nil
+		}
+		return strings.TrimSpace(result.Text), nil
 	}
 }
 
@@ -417,6 +431,12 @@ func (c *Client) readLoop() {
 			case <-c.closed:
 				return
 			default:
+				if errors.Is(err, net.ErrClosed) ||
+					websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) ||
+					strings.Contains(err.Error(), "unexpected EOF") {
+					c.logger.Info("app-server connection closed", "error", err)
+					return
+				}
 				c.logger.Error("app-server read failed", "error", err)
 				return
 			}
@@ -459,8 +479,10 @@ func (c *Client) handleServerRequest(rawID json.RawMessage, method string, param
 			write(map[string]any{"success": false, "contentItems": []map[string]any{{"type": "inputText", "text": "invalid tool request"}}})
 			return
 		}
+		c.logger.Info("codex tool call", "tool", request.Tool, "arguments", strings.TrimSpace(string(request.Arguments)))
 		response, err := c.tools.Call(context.Background(), request.Tool, request.Arguments)
 		if err != nil {
+			c.logger.Warn("codex tool call failed", "tool", request.Tool, "error", err)
 			write(map[string]any{
 				"success": false,
 				"contentItems": []map[string]any{
@@ -511,7 +533,7 @@ func (c *Client) handleServerRequest(rawID json.RawMessage, method string, param
 
 func (c *Client) handleNotification(method string, params json.RawMessage) {
 	switch method {
-	case "agent_message_delta":
+	case "item/agentMessage/delta", "agent_message_delta":
 		var event struct {
 			Delta  string `json:"delta"`
 			TurnID string `json:"turnId"`
@@ -524,6 +546,26 @@ func (c *Client) handleNotification(method string, params json.RawMessage) {
 		c.stateMu.Unlock()
 		if waiter != nil {
 			waiter.deltas.WriteString(event.Delta)
+		}
+	case "item/completed":
+		var event struct {
+			TurnID string `json:"turnId"`
+			Item   struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"item"`
+		}
+		if err := json.Unmarshal(params, &event); err != nil {
+			return
+		}
+		if event.Item.Type != "agentMessage" && event.Item.Type != "AgentMessage" {
+			return
+		}
+		c.stateMu.Lock()
+		waiter := c.turns[event.TurnID]
+		c.stateMu.Unlock()
+		if waiter != nil && strings.TrimSpace(event.Item.Text) != "" {
+			waiter.texts = append(waiter.texts, strings.TrimSpace(event.Item.Text))
 		}
 	case "turn/completed":
 		var event struct {
@@ -548,7 +590,7 @@ func (c *Client) handleNotification(method string, params json.RawMessage) {
 			waiter.completed <- turnResult{Error: errors.New(event.Turn.Error.Message)}
 			return
 		}
-		waiter.completed <- turnResult{Text: waiter.deltas.String()}
+		waiter.completed <- turnResult{Text: resolveTurnText(waiter)}
 	case "error":
 		var event map[string]any
 		_ = json.Unmarshal(params, &event)
@@ -602,7 +644,12 @@ func (c *Client) streamLogs(stream string, reader any) {
 		return
 	}
 	for scanner.Scan() {
-		c.logger.Debug("codex app-server", "stream", stream, "line", scanner.Text())
+		line := scanner.Text()
+		if stream == "stderr" {
+			c.logger.Warn("codex app-server", "stream", stream, "line", line)
+			continue
+		}
+		c.logger.Info("codex app-server", "stream", stream, "line", line)
 	}
 }
 
@@ -633,4 +680,14 @@ func normalizeJSONText(value string) string {
 	trimmed = strings.TrimPrefix(trimmed, "```")
 	trimmed = strings.TrimSuffix(trimmed, "```")
 	return strings.TrimSpace(trimmed)
+}
+
+func resolveTurnText(waiter *turnWaiter) string {
+	if waiter == nil {
+		return ""
+	}
+	if len(waiter.texts) > 0 {
+		return strings.Join(waiter.texts, "\n")
+	}
+	return waiter.deltas.String()
 }

@@ -30,23 +30,14 @@ type App struct {
 	loc    *time.Location
 
 	store     *memory.Store
+	tools     *codex.ToolRegistry
 	codex     *codex.Client
 	discord   discordsvc.Service
 	scheduler *jobs.Scheduler
 	http      *http.Client
 
 	codexMu sync.Mutex
-	stateMu sync.RWMutex
 	thread  codex.ThreadSession
-	managed managedChannels
-}
-
-type managedChannels struct {
-	Category      discordsvc.Channel
-	Ops           discordsvc.Channel
-	Notifications discordsvc.Channel
-	DailyLog      discordsvc.Channel
-	GrowthLog     discordsvc.Channel
 }
 
 func New(cfg config.Config, logger *slog.Logger) (*App, error) {
@@ -76,6 +67,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 
 	tools := codex.NewToolRegistry()
 	app.registerTools(tools)
+	app.tools = tools
 	app.codex = codex.NewClient(cfg, paths, logger, tools)
 	app.scheduler = jobs.NewScheduler(store, mustDuration(cfg.Behavior.JobPollInterval, 30*time.Second))
 	app.scheduler.Register("codex_release_watch", jobHandlerFunc(app.handleReleaseWatchJob))
@@ -124,7 +116,7 @@ func (a *App) Run(ctx context.Context) error {
 
 	threadID, _, _ := a.store.GetKV(ctx, "codex.main_thread_id")
 	if session, err := a.codex.EnsureThread(ctx, threadID, baseInstructions(), developerInstructions()); err != nil {
-		a.logger.Warn("codex thread unavailable; fallback mode only", "error", err)
+		a.logger.Warn("codex thread unavailable", "error", err)
 	} else {
 		a.thread = session
 		_ = a.store.SetKV(ctx, "codex.main_thread_id", session.ID)
@@ -142,13 +134,6 @@ func (a *App) Run(ctx context.Context) error {
 		go a.processPresence(p)
 	})
 	if err := a.discord.Open(); err != nil {
-		return err
-	}
-
-	if err := a.ensureManagedSpace(ctx); err != nil {
-		return err
-	}
-	if err := a.ensureDefaultJobs(ctx); err != nil {
 		return err
 	}
 
@@ -237,10 +222,18 @@ func (a *App) processPresence(event *discordgo.PresenceUpdate) {
 	if ok && isOffline(previous.Status) && !isOffline(current.Status) {
 		threshold := mustDuration(a.cfg.Behavior.WakeSummaryThreshold, 4*time.Hour)
 		if now.Sub(previous.StartedAt) >= threshold {
+			channelID, found, err := a.store.LatestChannelIDForAuthor(ctx, a.cfg.Discord.OwnerUserID)
+			if err != nil {
+				a.logger.Warn("resolve wake summary channel failed", "error", err)
+				return
+			}
+			if !found {
+				return
+			}
 			payload := map[string]any{
 				"since": previous.StartedAt.Format(time.RFC3339Nano),
 			}
-			job := jobs.NewJob(jobID("wake-summary"), "wake_summary", "wake summary", a.managed.Ops.ID, "10s", payload)
+			job := jobs.NewJob(jobID("wake-summary"), "wake_summary", "wake summary", channelID, "10s", payload)
 			job.NextRunAt = now.Add(10 * time.Second)
 			if err := a.store.UpsertJob(ctx, job); err != nil {
 				a.logger.Warn("schedule wake summary failed", "error", err)
@@ -250,28 +243,19 @@ func (a *App) processPresence(event *discordgo.PresenceUpdate) {
 }
 
 func (a *App) decide(ctx context.Context, msg memory.Message, profile memory.ChannelProfile, recent []memory.Message, facts []memory.Fact) (decision.ReplyDecision, error) {
-	if fallback, ok := fallbackDecision(msg, profile, a.discordSelfMention()); ok {
-		return fallback, nil
-	}
 	if a.thread.ID == "" {
-		return fallbackDecisionOnly(msg, profile, a.discordSelfMention()), nil
+		return decision.ReplyDecision{}, errors.New("codex thread is unavailable")
 	}
 
-	prompt := buildTriagePrompt(msg, profile, recent, facts, a.managed, a.discordSelfMention())
+	prompt := buildTriagePrompt(msg, profile, recent, facts, a.tools.Specs(), a.discordSelfMention())
 	a.codexMu.Lock()
 	defer a.codexMu.Unlock()
-	raw, err := a.codex.RunJSONTurn(ctx, a.thread.ID, prompt, decision.OutputSchema())
+	raw, err := a.codex.RunTurn(ctx, a.thread.ID, prompt)
 	if err != nil {
-		return fallbackDecisionOnly(msg, profile, a.discordSelfMention()), nil
+		a.logger.Warn("codex turn failed", "channel", msg.ChannelName, "message_id", msg.ID, "error", err)
+		return decision.ReplyDecision{}, fmt.Errorf("run codex turn: %w", err)
 	}
-	var parsed decision.ReplyDecision
-	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
-		return fallbackDecisionOnly(msg, profile, a.discordSelfMention()), nil
-	}
-	if parsed.Action == "" {
-		return fallbackDecisionOnly(msg, profile, a.discordSelfMention()), nil
-	}
-	return parsed, nil
+	return parseAssistantReply(raw), nil
 }
 
 func (a *App) applyDecision(ctx context.Context, msg memory.Message, profile memory.ChannelProfile, selected decision.ReplyDecision) error {
@@ -309,14 +293,10 @@ func (a *App) applyDecision(ctx context.Context, msg memory.Message, profile mem
 func (a *App) executeAction(ctx context.Context, msg memory.Message, action decision.ServerAction) error {
 	switch action.Type {
 	case "create_channel":
-		parentID := action.ParentChannelID
-		if parentID == "" {
-			parentID = a.managed.Category.ID
-		}
 		channel, err := a.discord.EnsureTextChannel(ctx, a.cfg.Discord.GuildID, discordsvc.ChannelSpec{
 			Name:     sanitizeChannelName(action.Name),
 			Topic:    action.Topic,
-			ParentID: parentID,
+			ParentID: action.ParentChannelID,
 		})
 		if err != nil {
 			return err
@@ -333,16 +313,7 @@ func (a *App) executeAction(ctx context.Context, msg memory.Message, action deci
 func (a *App) enqueueJob(ctx context.Context, msg memory.Message, req decision.JobRequest) error {
 	channelID := req.ChannelID
 	if channelID == "" {
-		switch req.Kind {
-		case "codex_release_watch":
-			channelID = a.managed.Notifications.ID
-		case "daily_summary":
-			channelID = a.managed.DailyLog.ID
-		case "growth_log":
-			channelID = a.managed.GrowthLog.ID
-		default:
-			channelID = msg.ChannelID
-		}
+		channelID = msg.ChannelID
 	}
 	job := jobs.NewJob(jobID(req.Kind), req.Kind, req.Title, channelID, req.Schedule, req.Payload)
 	if req.Schedule == "" {
@@ -352,102 +323,6 @@ func (a *App) enqueueJob(ctx context.Context, msg memory.Message, req decision.J
 		job.Payload["repo"] = "openai/codex"
 	}
 	return a.store.UpsertJob(ctx, job)
-}
-
-func (a *App) ensureManagedSpace(ctx context.Context) error {
-	category, err := a.discord.EnsureCategory(ctx, a.cfg.Discord.GuildID, a.cfg.Runtime.CategoryName)
-	if err != nil {
-		return err
-	}
-	ops, err := a.discord.EnsureTextChannel(ctx, a.cfg.Discord.GuildID, discordsvc.ChannelSpec{
-		Name:     a.cfg.Runtime.OpsChannelName,
-		ParentID: category.ID,
-		Topic:    "ゆるり運用ログ",
-	})
-	if err != nil {
-		return err
-	}
-	notifications, err := a.discord.EnsureTextChannel(ctx, a.cfg.Discord.GuildID, discordsvc.ChannelSpec{
-		Name:     a.cfg.Runtime.NotificationsChannelName,
-		ParentID: category.ID,
-		Topic:    "ゆるり通知",
-	})
-	if err != nil {
-		return err
-	}
-	daily, err := a.discord.EnsureTextChannel(ctx, a.cfg.Discord.GuildID, discordsvc.ChannelSpec{
-		Name:     a.cfg.Runtime.DailyLogChannelName,
-		ParentID: category.ID,
-		Topic:    "日次まとめ",
-	})
-	if err != nil {
-		return err
-	}
-	growth, err := a.discord.EnsureTextChannel(ctx, a.cfg.Discord.GuildID, discordsvc.ChannelSpec{
-		Name:     a.cfg.Runtime.GrowthLogChannelName,
-		ParentID: category.ID,
-		Topic:    "成長日記",
-	})
-	if err != nil {
-		return err
-	}
-	a.stateMu.Lock()
-	a.managed = managedChannels{
-		Category:      category,
-		Ops:           ops,
-		Notifications: notifications,
-		DailyLog:      daily,
-		GrowthLog:     growth,
-	}
-	a.stateMu.Unlock()
-	return nil
-}
-
-func (a *App) ensureDefaultJobs(ctx context.Context) error {
-	defaults := []jobs.Job{
-		{
-			ID:           "daily-summary",
-			Kind:         "daily_summary",
-			Title:        "daily summary",
-			State:        jobs.StatePending,
-			ChannelID:    a.managed.DailyLog.ID,
-			ScheduleExpr: "24h",
-			NextRunAt:    nextLocalClock(time.Now().In(a.loc), a.loc, 23, 30),
-		},
-		{
-			ID:           "weekly-review",
-			Kind:         "weekly_review",
-			Title:        "weekly review",
-			State:        jobs.StatePending,
-			ChannelID:    a.managed.DailyLog.ID,
-			ScheduleExpr: "168h",
-			NextRunAt:    nextWeekdayClock(time.Now().In(a.loc), a.loc, time.Sunday, 21, 0),
-		},
-		{
-			ID:           "growth-log",
-			Kind:         "growth_log",
-			Title:        "growth log",
-			State:        jobs.StatePending,
-			ChannelID:    a.managed.GrowthLog.ID,
-			ScheduleExpr: "24h",
-			NextRunAt:    nextLocalClock(time.Now().In(a.loc), a.loc, 23, 45),
-		},
-	}
-
-	for _, job := range defaults {
-		if _, exists, err := a.store.GetJob(ctx, job.ID); err != nil {
-			return err
-		} else if exists {
-			continue
-		}
-		job.Payload = map[string]any{}
-		job.CreatedAt = time.Now().UTC()
-		job.UpdatedAt = job.CreatedAt
-		if err := a.store.UpsertJob(ctx, job); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func (a *App) resolveChannelProfile(ctx context.Context, channelID string, channelName string) (memory.ChannelProfile, error) {
@@ -465,31 +340,10 @@ func (a *App) resolveChannelProfile(ctx context.Context, channelID string, chann
 	cadence := "daily"
 	lower := strings.ToLower(channelName)
 
-	if slices.Contains(a.cfg.Behavior.MonologueChannelNames, channelName) || strings.Contains(lower, "monologue") {
+	if strings.Contains(lower, "monologue") || slices.Contains(a.cfg.Behavior.MonologueChannelNames, channelName) {
 		kind = "monologue"
 		replyAgg = 0.15
 		autonomy = 0.85
-	}
-	if channelName == a.cfg.Runtime.NotificationsChannelName || slices.Contains(a.cfg.Behavior.NotificationNames, channelName) {
-		kind = "notifications"
-		replyAgg = 0.05
-		autonomy = 0.9
-		cadence = "none"
-	}
-	if channelName == a.cfg.Runtime.OpsChannelName {
-		kind = "ops"
-		replyAgg = 0.4
-		autonomy = 0.95
-	}
-	if channelName == a.cfg.Runtime.DailyLogChannelName {
-		kind = "daily-log"
-		replyAgg = 0.05
-		autonomy = 1
-	}
-	if channelName == a.cfg.Runtime.GrowthLogChannelName {
-		kind = "growth-log"
-		replyAgg = 0.05
-		autonomy = 1
 	}
 
 	profile = memory.ChannelProfile{
@@ -507,7 +361,14 @@ func (a *App) resolveChannelProfile(ctx context.Context, channelID string, chann
 }
 
 func (a *App) registerTools(registry *codex.ToolRegistry) {
-	registry.Register("memory.search", func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+	registry.Register(codex.ToolSpec{
+		Name:        "memory.search",
+		Description: "保存済みメッセージと fact から関連情報を検索する",
+		InputSchema: objectSchema(
+			fieldSchema("query", "string", "検索語"),
+			fieldSchema("limit", "integer", "取得件数"),
+		),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
 		var input struct {
 			Query string `json:"query"`
 			Limit int    `json:"limit"`
@@ -534,8 +395,51 @@ func (a *App) registerTools(registry *codex.ToolRegistry) {
 		}
 		return textTool(strings.Join(lines, "\n")), nil
 	})
-	registry.Register("jobs.list", func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
-		due, err := a.store.DueJobs(ctx, time.Now().UTC().Add(365*24*time.Hour), 32)
+	registry.Register(codex.ToolSpec{
+		Name:        "memory.write_fact",
+		Description: "長期記憶として fact を 1 件保存または更新する",
+		InputSchema: objectSchema(
+			fieldSchema("kind", "string", "fact の種別"),
+			fieldSchema("key", "string", "fact の一意キー"),
+			fieldSchema("value", "string", "保存する内容"),
+			fieldSchema("source_message_id", "string", "元メッセージ ID"),
+		),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+		var input struct {
+			Kind            string `json:"kind"`
+			Key             string `json:"key"`
+			Value           string `json:"value"`
+			SourceMessageID string `json:"source_message_id"`
+		}
+		if err := json.Unmarshal(raw, &input); err != nil {
+			return codex.ToolResponse{}, err
+		}
+		if strings.TrimSpace(input.Kind) == "" || strings.TrimSpace(input.Key) == "" {
+			return codex.ToolResponse{}, errors.New("kind and key are required")
+		}
+		if err := a.store.UpsertFact(ctx, memory.Fact{
+			Kind:            input.Kind,
+			Key:             input.Key,
+			Value:           input.Value,
+			SourceMessageID: input.SourceMessageID,
+		}); err != nil {
+			return codex.ToolResponse{}, err
+		}
+		return textTool("ok"), nil
+	})
+	registry.Register(codex.ToolSpec{
+		Name:        "jobs.list",
+		Description: "登録済み job の一覧を確認する",
+		InputSchema: objectSchema(fieldSchema("limit", "integer", "取得件数")),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+		var input struct {
+			Limit int `json:"limit"`
+		}
+		_ = json.Unmarshal(raw, &input)
+		if input.Limit <= 0 {
+			input.Limit = 32
+		}
+		due, err := a.store.DueJobs(ctx, time.Now().UTC().Add(365*24*time.Hour), input.Limit)
 		if err != nil {
 			return codex.ToolResponse{}, err
 		}
@@ -548,7 +452,95 @@ func (a *App) registerTools(registry *codex.ToolRegistry) {
 		}
 		return textTool(strings.Join(lines, "\n")), nil
 	})
-	registry.Register("discord.read_recent_messages", func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+	registry.Register(codex.ToolSpec{
+		Name:        "jobs.schedule",
+		Description: "job を登録または更新する",
+		InputSchema: objectSchema(
+			fieldSchema("id", "string", "job ID"),
+			fieldSchema("kind", "string", "job の種別"),
+			fieldSchema("title", "string", "job の表示名"),
+			fieldSchema("channel_id", "string", "投稿先チャンネル ID"),
+			fieldSchema("schedule", "string", "Go duration 形式"),
+			fieldSchema("payload", "object", "job payload"),
+		),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+		var input struct {
+			ID        string         `json:"id"`
+			Kind      string         `json:"kind"`
+			Title     string         `json:"title"`
+			ChannelID string         `json:"channel_id"`
+			Schedule  string         `json:"schedule"`
+			Payload   map[string]any `json:"payload"`
+		}
+		if err := json.Unmarshal(raw, &input); err != nil {
+			return codex.ToolResponse{}, err
+		}
+		if strings.TrimSpace(input.Kind) == "" || strings.TrimSpace(input.Title) == "" {
+			return codex.ToolResponse{}, errors.New("kind and title are required")
+		}
+		if input.ID == "" {
+			input.ID = jobID(input.Kind)
+		}
+		if input.Schedule == "" {
+			input.Schedule = a.cfg.Behavior.ReleaseWatchInterval
+		}
+		job := jobs.NewJob(input.ID, input.Kind, input.Title, input.ChannelID, input.Schedule, input.Payload)
+		if input.Kind == "codex_release_watch" && job.Payload["repo"] == nil {
+			job.Payload["repo"] = "openai/codex"
+		}
+		if err := a.store.UpsertJob(ctx, job); err != nil {
+			return codex.ToolResponse{}, err
+		}
+		return textTool(fmt.Sprintf("scheduled %s", job.ID)), nil
+	})
+	registry.Register(codex.ToolSpec{
+		Name:        "jobs.cancel",
+		Description: "job を停止する",
+		InputSchema: objectSchema(fieldSchema("id", "string", "停止する job ID")),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+		var input struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(raw, &input); err != nil {
+			return codex.ToolResponse{}, err
+		}
+		if input.ID == "" {
+			return codex.ToolResponse{}, errors.New("id is required")
+		}
+		if err := a.store.UpdateJobState(ctx, input.ID, jobs.StateCompleted, time.Now().UTC(), "cancelled", nil); err != nil {
+			return codex.ToolResponse{}, err
+		}
+		return textTool("cancelled"), nil
+	})
+	registry.Register(codex.ToolSpec{
+		Name:        "discord.list_channels",
+		Description: "サーバー内のチャンネル一覧を取得する",
+		InputSchema: objectSchema(),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+		if a.discord == nil {
+			return codex.ToolResponse{}, errors.New("discord is not connected")
+		}
+		channels, err := a.discord.ListChannels(ctx, a.cfg.Discord.GuildID)
+		if err != nil {
+			return codex.ToolResponse{}, err
+		}
+		lines := make([]string, 0, len(channels))
+		for _, channel := range channels {
+			lines = append(lines, fmt.Sprintf("- %s id=%s parent=%s type=%d", channel.Name, channel.ID, channel.ParentID, channel.Type))
+		}
+		if len(lines) == 0 {
+			lines = append(lines, "no channels")
+		}
+		return textTool(strings.Join(lines, "\n")), nil
+	})
+	registry.Register(codex.ToolSpec{
+		Name:        "discord.read_recent_messages",
+		Description: "指定チャンネルの直近メッセージを読む",
+		InputSchema: objectSchema(
+			fieldSchema("channel_id", "string", "対象チャンネル ID"),
+			fieldSchema("limit", "integer", "取得件数"),
+		),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
 		if a.discord == nil {
 			return codex.ToolResponse{}, errors.New("discord is not connected")
 		}
@@ -570,7 +562,11 @@ func (a *App) registerTools(registry *codex.ToolRegistry) {
 		}
 		return textTool(strings.Join(lines, "\n")), nil
 	})
-	registry.Register("discord.get_member_presence", func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+	registry.Register(codex.ToolSpec{
+		Name:        "discord.get_member_presence",
+		Description: "ユーザーの現在の presence と activity を取得する",
+		InputSchema: objectSchema(fieldSchema("user_id", "string", "対象ユーザー ID")),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
 		if a.discord == nil {
 			return codex.ToolResponse{}, errors.New("discord is not connected")
 		}
@@ -584,24 +580,102 @@ func (a *App) registerTools(registry *codex.ToolRegistry) {
 		}
 		return textTool(fmt.Sprintf("status=%s activities=%s", presence.Status, strings.Join(presence.Activities, ", "))), nil
 	})
-	registry.Register("discord.create_channel", func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+	registry.Register(codex.ToolSpec{
+		Name:        "discord.send_message",
+		Description: "指定チャンネルへメッセージを送る",
+		InputSchema: objectSchema(
+			fieldSchema("channel_id", "string", "送信先チャンネル ID"),
+			fieldSchema("content", "string", "送信内容"),
+		),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
 		if a.discord == nil {
 			return codex.ToolResponse{}, errors.New("discord is not connected")
 		}
 		var input struct {
-			Name  string `json:"name"`
-			Topic string `json:"topic"`
+			ChannelID string `json:"channel_id"`
+			Content   string `json:"content"`
 		}
-		_ = json.Unmarshal(raw, &input)
+		if err := json.Unmarshal(raw, &input); err != nil {
+			return codex.ToolResponse{}, err
+		}
+		messageID, err := a.discord.SendMessage(ctx, input.ChannelID, input.Content)
+		if err != nil {
+			return codex.ToolResponse{}, err
+		}
+		return textTool(fmt.Sprintf("sent %s", messageID)), nil
+	})
+	registry.Register(codex.ToolSpec{
+		Name:        "discord.create_category",
+		Description: "カテゴリチャンネルを作成する",
+		InputSchema: objectSchema(fieldSchema("name", "string", "カテゴリ名")),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+		if a.discord == nil {
+			return codex.ToolResponse{}, errors.New("discord is not connected")
+		}
+		var input struct {
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal(raw, &input); err != nil {
+			return codex.ToolResponse{}, err
+		}
+		channel, err := a.discord.EnsureCategory(ctx, a.cfg.Discord.GuildID, input.Name)
+		if err != nil {
+			return codex.ToolResponse{}, err
+		}
+		return textTool(fmt.Sprintf("created %s (%s)", channel.Name, channel.ID)), nil
+	})
+	registry.Register(codex.ToolSpec{
+		Name:        "discord.create_channel",
+		Description: "テキストチャンネルを作成する。parent_channel_id を省略するとルート直下に作る",
+		InputSchema: objectSchema(
+			fieldSchema("name", "string", "チャンネル名"),
+			fieldSchema("topic", "string", "トピック"),
+			fieldSchema("parent_channel_id", "string", "親カテゴリ ID"),
+		),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+		if a.discord == nil {
+			return codex.ToolResponse{}, errors.New("discord is not connected")
+		}
+		var input struct {
+			Name            string `json:"name"`
+			Topic           string `json:"topic"`
+			ParentChannelID string `json:"parent_channel_id"`
+		}
+		if err := json.Unmarshal(raw, &input); err != nil {
+			return codex.ToolResponse{}, err
+		}
 		channel, err := a.discord.EnsureTextChannel(ctx, a.cfg.Discord.GuildID, discordsvc.ChannelSpec{
 			Name:     sanitizeChannelName(input.Name),
 			Topic:    input.Topic,
-			ParentID: a.managed.Category.ID,
+			ParentID: input.ParentChannelID,
 		})
 		if err != nil {
 			return codex.ToolResponse{}, err
 		}
 		return textTool(fmt.Sprintf("created %s (%s)", channel.Name, channel.ID)), nil
+	})
+	registry.Register(codex.ToolSpec{
+		Name:        "discord.move_channel",
+		Description: "チャンネルを別カテゴリへ移動する",
+		InputSchema: objectSchema(
+			fieldSchema("target_channel_id", "string", "移動対象チャンネル ID"),
+			fieldSchema("parent_channel_id", "string", "移動先カテゴリ ID"),
+		),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+		if a.discord == nil {
+			return codex.ToolResponse{}, errors.New("discord is not connected")
+		}
+		var input struct {
+			TargetChannelID string `json:"target_channel_id"`
+			ParentChannelID string `json:"parent_channel_id"`
+		}
+		if err := json.Unmarshal(raw, &input); err != nil {
+			return codex.ToolResponse{}, err
+		}
+		if err := a.discord.MoveChannel(ctx, input.TargetChannelID, input.ParentChannelID); err != nil {
+			return codex.ToolResponse{}, err
+		}
+		return textTool("ok"), nil
 	})
 }
 
@@ -632,6 +706,40 @@ type jobHandlerFunc func(context.Context, jobs.Job) (jobs.Result, error)
 
 func (f jobHandlerFunc) Run(ctx context.Context, job jobs.Job) (jobs.Result, error) {
 	return f(ctx, job)
+}
+
+func objectSchema(fields ...map[string]any) map[string]any {
+	properties := map[string]any{}
+	for _, field := range fields {
+		name, _ := field["name"].(string)
+		if name == "" {
+			continue
+		}
+		cloned := map[string]any{}
+		for key, value := range field {
+			if key == "name" {
+				continue
+			}
+			cloned[key] = value
+		}
+		properties[name] = cloned
+	}
+	return map[string]any{
+		"type":                 "object",
+		"additionalProperties": false,
+		"properties":           properties,
+	}
+}
+
+func fieldSchema(name string, fieldType string, description string) map[string]any {
+	field := map[string]any{
+		"name": name,
+		"type": fieldType,
+	}
+	if description != "" {
+		field["description"] = description
+	}
+	return field
 }
 
 func textTool(text string) codex.ToolResponse {

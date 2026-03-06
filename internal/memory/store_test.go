@@ -98,3 +98,35 @@ func TestMessagesBetween(t *testing.T) {
 		t.Fatalf("expected 2 messages in range, got %d", len(got))
 	}
 }
+
+func TestLatestChannelIDForAuthor(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "yururi.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	base := time.Now().UTC()
+	for i, channelID := range []string{"c1", "c2"} {
+		if err := store.SaveMessage(ctx, Message{
+			ID:          string(rune('m' + i)),
+			ChannelID:   channelID,
+			ChannelName: "chat",
+			AuthorID:    "owner",
+			AuthorName:  "owner",
+			Content:     "note",
+			CreatedAt:   base.Add(time.Duration(i) * time.Minute),
+		}); err != nil {
+			t.Fatalf("save message %d: %v", i, err)
+		}
+	}
+
+	got, ok, err := store.LatestChannelIDForAuthor(ctx, "owner")
+	if err != nil {
+		t.Fatalf("latest channel: %v", err)
+	}
+	if !ok || got != "c2" {
+		t.Fatalf("unexpected latest channel: ok=%v got=%s", ok, got)
+	}
+}

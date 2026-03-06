@@ -7,8 +7,10 @@ Discord 上で動くパーソナル AI Agent `ゆるり` の実装。
 - Go 製の単一バイナリ
 - Discord Bot API を直接利用
 - Codex CLI App Server を子プロセスとして利用
+- 会話判断は text turn、永続操作は tool call を優先
 - bot 専用 `CODEX_HOME` と bot 専用 workspace を分離
 - 短期記憶、長期記憶、定期ジョブ、自律通知を内包
+- 起動時にチャンネルやカテゴリを自動作成しない
 
 ## Commands
 
@@ -42,4 +44,3 @@ Codex 認証は bot 専用 `runtime/codex-home/` で行う。
 ```bash
 CODEX_HOME=./runtime/codex-home codex login
 ```
-
