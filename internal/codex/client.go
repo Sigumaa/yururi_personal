@@ -284,27 +284,26 @@ func (c *Client) ListApps(ctx context.Context) ([]AppEntry, error) {
 }
 
 func (c *Client) RunTurn(ctx context.Context, threadID string, prompt string) (string, error) {
-	return c.runTurn(ctx, threadID, prompt, nil)
+	return c.runTurn(ctx, threadID, []InputItem{TextInput(prompt)}, nil)
+}
+
+func (c *Client) RunInputTurn(ctx context.Context, threadID string, input []InputItem) (string, error) {
+	return c.runTurn(ctx, threadID, input, nil)
 }
 
 func (c *Client) RunJSONTurn(ctx context.Context, threadID string, prompt string, outputSchema map[string]any) (string, error) {
-	return c.runTurn(ctx, threadID, prompt, outputSchema)
+	return c.runTurn(ctx, threadID, []InputItem{TextInput(prompt)}, outputSchema)
 }
 
-func (c *Client) runTurn(ctx context.Context, threadID string, prompt string, outputSchema map[string]any) (string, error) {
+func (c *Client) runTurn(ctx context.Context, threadID string, input []InputItem, outputSchema map[string]any) (string, error) {
 	if err := c.Start(ctx); err != nil {
 		return "", err
 	}
-	c.logger.Info("turn start", "thread_id", threadID, "prompt_bytes", len(prompt), "json_schema", outputSchema != nil)
-	c.logger.Debug("turn prompt", "thread_id", threadID, "prompt_preview", previewText(prompt, 1800), "schema_preview", previewJSON(outputSchema, 800))
+	c.logger.Info("turn start", "thread_id", threadID, "input_count", len(input), "json_schema", outputSchema != nil)
+	c.logger.Debug("turn input", "thread_id", threadID, "input_preview", previewJSON(input, 1800), "schema_preview", previewJSON(outputSchema, 800))
 	params := map[string]any{
-		"threadId": threadID,
-		"input": []map[string]any{
-			{
-				"type": "text",
-				"text": prompt,
-			},
-		},
+		"threadId":       threadID,
+		"input":          input,
 		"approvalPolicy": c.cfg.Codex.ApprovalPolicy,
 		"sandboxPolicy": map[string]any{
 			"type": "dangerFullAccess",

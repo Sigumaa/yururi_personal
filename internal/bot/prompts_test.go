@@ -109,6 +109,7 @@ func TestConversationPromptAllowsDirectToolsAndMultiReplies(t *testing.T) {
 		nil,
 		nil,
 		"<@bot>",
+		1,
 	)
 
 	if !strings.Contains(prompt, "その場で終わる確認、俯瞰、読取り、軽い編集は、job にせず今この turn で完了させる") {
@@ -119,6 +120,9 @@ func TestConversationPromptAllowsDirectToolsAndMultiReplies(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "media.load_attachments") {
 		t.Fatalf("expected attachment tool hint, got %s", prompt)
+	}
+	if !strings.Contains(prompt, "current message の画像添付はこの turn にすでに載っている") {
+		t.Fatalf("expected direct image input guidance, got %s", prompt)
 	}
 }
 

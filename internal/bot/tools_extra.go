@@ -565,24 +565,22 @@ func (a *App) registerMediaTools(registry *codex.ToolRegistry) {
 		if err := json.Unmarshal(raw, &input); err != nil {
 			return codex.ToolResponse{}, err
 		}
-		items := []codex.ToolContentItem{}
-		lines := []string{}
-		for _, url := range input.URLs {
-			url = strings.TrimSpace(url)
-			if url == "" {
-				continue
-			}
-			lines = append(lines, "- "+url)
-			items = append(items, codex.ToolContentItem{Type: "imageUrl", ImageURL: url})
-		}
-		if len(items) == 0 {
+		imageInputs, notes := a.buildImageInputs(ctx, input.URLs)
+		if len(imageInputs) == 0 {
 			return codex.ToolResponse{}, errors.New("urls are required")
 		}
+		items := make([]codex.ToolContentItem, 0, len(imageInputs)+1)
 		prefix := codex.ToolContentItem{
 			Type: "inputText",
-			Text: "loaded attachments:\n" + strings.Join(lines, "\n"),
+			Text: "loaded attachments:\n" + strings.Join(notes, "\n"),
 		}
-		items = append([]codex.ToolContentItem{prefix}, items...)
+		items = append(items, prefix)
+		for _, inputItem := range imageInputs {
+			items = append(items, codex.ToolContentItem{
+				Type:     "inputImage",
+				ImageURL: inputItem.URL,
+			})
+		}
 		return codex.ToolResponse{Success: true, ContentItems: items}, nil
 	})
 }

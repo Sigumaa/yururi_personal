@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Sigumaa/yururi_personal/internal/codex"
 	"github.com/Sigumaa/yururi_personal/internal/decision"
 	"github.com/Sigumaa/yururi_personal/internal/jobs"
 	"github.com/Sigumaa/yururi_personal/internal/memory"
@@ -13,11 +14,17 @@ import (
 
 const autonomyPulseJobID = "autonomy-pulse"
 
-func (a *App) runConversationTurn(ctx context.Context, threadID string, msg memory.Message, profile memory.ChannelProfile, recent []memory.Message, facts []memory.Fact) (string, error) {
-	prompt := buildConversationPrompt(msg, profile, recent, facts, a.tools.Specs(), a.discordSelfMention())
+func (a *App) runConversationTurn(ctx context.Context, threadID string, msg memory.Message, profile memory.ChannelProfile, recent []memory.Message, facts []memory.Fact, currentImageURLs []string) (string, error) {
+	prompt := buildConversationPrompt(msg, profile, recent, facts, a.tools.Specs(), a.discordSelfMention(), len(currentImageURLs))
 	a.logger.Info("conversation turn start", "thread_id", threadID, "channel", msg.ChannelName, "message_id", msg.ID, "prompt_bytes", len(prompt))
 	a.logger.Debug("conversation prompt", "thread_id", threadID, "channel", msg.ChannelName, "message_id", msg.ID, "prompt_preview", previewText(prompt, 1800))
-	raw, err := a.runThreadTurn(ctx, threadID, prompt)
+	input := []codex.InputItem{codex.TextInput(prompt)}
+	imageInputs, imageNotes := a.buildImageInputs(ctx, currentImageURLs)
+	if len(imageInputs) > 0 {
+		input = append(input, imageInputs...)
+		a.logger.Debug("conversation image inputs ready", "thread_id", threadID, "channel", msg.ChannelName, "message_id", msg.ID, "count", len(imageInputs), "notes", strings.Join(imageNotes, " | "))
+	}
+	raw, err := a.runThreadInputTurn(ctx, threadID, input)
 	if err != nil {
 		return "", fmt.Errorf("run conversation turn: %w", err)
 	}

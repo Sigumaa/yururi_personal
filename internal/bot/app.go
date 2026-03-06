@@ -221,7 +221,7 @@ func (a *App) processMessage(session *discordgo.Session, event *discordgo.Messag
 		return
 	}
 
-	reply, err := a.runConversationTurn(ctx, threadSession.ID, msg, profile, recent, facts)
+	reply, err := a.runConversationTurn(ctx, threadSession.ID, msg, profile, recent, facts, imageAttachmentURLs(event.Attachments))
 	if err != nil {
 		a.logger.Error("conversation turn failed", "channel", channelName, "channel_id", msg.ChannelID, "error", err)
 		return
