@@ -130,3 +130,18 @@ func TestHandleNotificationMarksInterruptedTurn(t *testing.T) {
 		t.Fatal("expected interrupted turn result")
 	}
 }
+
+func TestNormalizeInterruptedResult(t *testing.T) {
+	if err := normalizeInterruptedResult(turnResult{Error: ErrTurnInterrupted}); !errors.Is(err, ErrTurnInterrupted) {
+		t.Fatalf("expected interrupted error, got %v", err)
+	}
+
+	otherErr := errors.New("other")
+	if err := normalizeInterruptedResult(turnResult{Error: otherErr}); !errors.Is(err, otherErr) {
+		t.Fatalf("expected original error, got %v", err)
+	}
+
+	if err := normalizeInterruptedResult(turnResult{}); err != nil {
+		t.Fatalf("expected nil, got %v", err)
+	}
+}

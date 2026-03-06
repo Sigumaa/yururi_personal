@@ -435,7 +435,10 @@ func (c *Client) runTurn(ctx context.Context, threadID string, input []InputItem
 		}
 		cancel()
 		select {
-		case <-waiter.completed:
+		case result := <-waiter.completed:
+			if err := normalizeInterruptedResult(result); err != nil {
+				return "", err
+			}
 		case <-time.After(3 * time.Second):
 		}
 		return "", ctx.Err()
@@ -826,6 +829,16 @@ func normalizeJSONText(value string) string {
 	trimmed = strings.TrimPrefix(trimmed, "```")
 	trimmed = strings.TrimSuffix(trimmed, "```")
 	return strings.TrimSpace(trimmed)
+}
+
+func normalizeInterruptedResult(result turnResult) error {
+	if errors.Is(result.Error, ErrTurnInterrupted) {
+		return ErrTurnInterrupted
+	}
+	if result.Error != nil {
+		return result.Error
+	}
+	return nil
 }
 
 func resolveTurnText(waiter *turnWaiter) string {
