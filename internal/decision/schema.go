@@ -1,89 +1,88 @@
 package decision
 
 func OutputSchema() map[string]any {
+	return strictObject(map[string]any{
+		"action": schemaEnum(
+			string(ActionIgnore),
+			string(ActionReply),
+			string(ActionSchedule),
+			string(ActionAct),
+			string(ActionReflect),
+		),
+		"reason":  schemaString(),
+		"message": schemaString(),
+		"confidence": map[string]any{
+			"type": "number",
+		},
+		"memory_writes": map[string]any{
+			"type": "array",
+			"items": strictObject(map[string]any{
+				"kind":  schemaString(),
+				"key":   schemaString(),
+				"value": schemaString(),
+			}),
+		},
+		"jobs": map[string]any{
+			"type": "array",
+			"items": strictObject(map[string]any{
+				"kind":        schemaString(),
+				"title":       schemaString(),
+				"channel_id":  schemaString(),
+				"schedule":    schemaString(),
+				"description": schemaString(),
+				"payload": strictObject(map[string]any{
+					"repo":       schemaString(),
+					"since":      schemaString(),
+					"url":        schemaString(),
+					"query":      schemaString(),
+					"prompt":     schemaString(),
+					"goal":       schemaString(),
+					"channel_id": schemaString(),
+					"note":       schemaString(),
+				}),
+			}),
+		},
+		"actions": map[string]any{
+			"type": "array",
+			"items": strictObject(map[string]any{
+				"type":              schemaString(),
+				"name":              schemaString(),
+				"parent_channel_id": schemaString(),
+				"target_channel_id": schemaString(),
+				"topic":             schemaString(),
+				"reason":            schemaString(),
+				"announcement_text": schemaString(),
+			}),
+		},
+	})
+}
+
+func strictObject(properties map[string]any) map[string]any {
+	required := make([]string, 0, len(properties))
+	for key := range properties {
+		required = append(required, key)
+	}
 	return map[string]any{
 		"type":                 "object",
 		"additionalProperties": false,
-		"required":             []string{"action", "reason"},
-		"properties": map[string]any{
-			"action": map[string]any{
-				"type": "string",
-				"enum": []string{
-					string(ActionIgnore),
-					string(ActionReply),
-					string(ActionSchedule),
-					string(ActionAct),
-					string(ActionReflect),
-				},
-			},
-			"reason": map[string]any{
-				"type": "string",
-			},
-			"message": map[string]any{
-				"type": "string",
-			},
-			"confidence": map[string]any{
-				"type": "number",
-			},
-			"memory_writes": map[string]any{
-				"type": "array",
-				"items": map[string]any{
-					"type":                 "object",
-					"additionalProperties": false,
-					"required":             []string{"kind", "key", "value"},
-					"properties": map[string]any{
-						"kind":  map[string]any{"type": "string"},
-						"key":   map[string]any{"type": "string"},
-						"value": map[string]any{"type": "string"},
-					},
-				},
-			},
-			"jobs": map[string]any{
-				"type": "array",
-				"items": map[string]any{
-					"type":                 "object",
-					"additionalProperties": false,
-					"required":             []string{"kind", "title"},
-					"properties": map[string]any{
-						"kind":        map[string]any{"type": "string"},
-						"title":       map[string]any{"type": "string"},
-						"channel_id":  map[string]any{"type": "string"},
-						"schedule":    map[string]any{"type": "string"},
-						"description": map[string]any{"type": "string"},
-						"payload": map[string]any{
-							"type":                 "object",
-							"additionalProperties": false,
-							"properties": map[string]any{
-								"repo":       map[string]any{"type": "string"},
-								"since":      map[string]any{"type": "string"},
-								"url":        map[string]any{"type": "string"},
-								"query":      map[string]any{"type": "string"},
-								"prompt":     map[string]any{"type": "string"},
-								"goal":       map[string]any{"type": "string"},
-								"channel_id": map[string]any{"type": "string"},
-								"note":       map[string]any{"type": "string"},
-							},
-						},
-					},
-				},
-			},
-			"actions": map[string]any{
-				"type": "array",
-				"items": map[string]any{
-					"type":                 "object",
-					"additionalProperties": false,
-					"required":             []string{"type"},
-					"properties": map[string]any{
-						"type":              map[string]any{"type": "string"},
-						"name":              map[string]any{"type": "string"},
-						"parent_channel_id": map[string]any{"type": "string"},
-						"target_channel_id": map[string]any{"type": "string"},
-						"topic":             map[string]any{"type": "string"},
-						"reason":            map[string]any{"type": "string"},
-						"announcement_text": map[string]any{"type": "string"},
-					},
-				},
-			},
-		},
+		"required":             required,
+		"properties":           properties,
+	}
+}
+
+func schemaString() map[string]any {
+	return map[string]any{
+		"type": "string",
+	}
+}
+
+func schemaEnum(values ...string) map[string]any {
+	out := make([]any, 0, len(values))
+	for _, value := range values {
+		out = append(out, value)
+	}
+	return map[string]any{
+		"type": "string",
+		"enum": out,
 	}
 }
