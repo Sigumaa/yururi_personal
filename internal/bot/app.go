@@ -81,7 +81,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	tools.SetHooks(app.beforeToolCall, app.afterToolCall)
 	app.tools = tools
 	app.codex = codex.NewClient(cfg, paths, logger, tools)
-	app.scheduler = jobs.NewScheduler(store, mustDuration(cfg.Behavior.JobPollInterval, 30*time.Second))
+	app.scheduler = jobs.NewScheduler(store, defaultSchedulerPollInterval)
 	app.scheduler.SetLogger(logger)
 	app.scheduler.SetObserver(app.handleJobResult)
 	app.scheduler.Register("codex_release_watch", jobHandlerFunc(app.handleReleaseWatchJob))
@@ -312,7 +312,7 @@ func (a *App) processPresence(event *discordgo.PresenceUpdate) {
 	a.logger.Info("presence updated", "status", current.Status, "activities", strings.Join(current.Activities, ","))
 
 	if ok && isOffline(previous.Status) && !isOffline(current.Status) {
-		threshold := mustDuration(a.cfg.Behavior.WakeSummaryThreshold, 4*time.Hour)
+		threshold := defaultWakeSummaryThreshold
 		if now.Sub(previous.StartedAt) >= threshold {
 			channelID, found, err := a.store.LatestChannelIDForAuthor(ctx, a.cfg.Discord.OwnerUserID)
 			if err != nil {
@@ -459,7 +459,7 @@ func (a *App) enqueueJob(ctx context.Context, msg memory.Message, req decision.J
 		job.Payload = map[string]any{}
 	}
 	if req.Schedule == "" {
-		job.ScheduleExpr = a.cfg.Behavior.ReleaseWatchInterval
+		job.ScheduleExpr = defaultWatchSchedule
 	}
 	if req.Kind == "codex_release_watch" && job.Payload["repo"] == nil {
 		job.Payload["repo"] = "openai/codex"
@@ -720,7 +720,7 @@ func (a *App) registerTools(registry *codex.ToolRegistry) {
 			input.ID = jobID(input.Kind)
 		}
 		if input.Schedule == "" {
-			input.Schedule = a.cfg.Behavior.ReleaseWatchInterval
+			input.Schedule = defaultWatchSchedule
 		}
 		job := jobs.NewJob(input.ID, input.Kind, input.Title, input.ChannelID, input.Schedule, input.Payload)
 		if input.Kind == "codex_release_watch" && job.Payload["repo"] == nil {

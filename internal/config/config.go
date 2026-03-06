@@ -11,12 +11,11 @@ import (
 )
 
 type Config struct {
-	AppName  string         `toml:"app_name"`
-	Timezone string         `toml:"timezone"`
-	Discord  DiscordConfig  `toml:"discord"`
-	Runtime  RuntimeConfig  `toml:"runtime"`
-	Codex    CodexConfig    `toml:"codex"`
-	Behavior BehaviorConfig `toml:"behavior"`
+	AppName  string        `toml:"app_name"`
+	Timezone string        `toml:"timezone"`
+	Discord  DiscordConfig `toml:"discord"`
+	Runtime  RuntimeConfig `toml:"runtime"`
+	Codex    CodexConfig   `toml:"codex"`
 }
 
 type DiscordConfig struct {
@@ -40,13 +39,6 @@ type CodexConfig struct {
 	ReasoningSummary string `toml:"reasoning_summary"`
 	EnableApps       bool   `toml:"enable_apps"`
 	EnableSkills     bool   `toml:"enable_skills"`
-}
-
-type BehaviorConfig struct {
-	WakeSummaryThreshold  string `toml:"wake_summary_threshold"`
-	JobPollInterval       string `toml:"job_poll_interval"`
-	ReleaseWatchInterval  string `toml:"release_watch_interval"`
-	AutonomyPulseInterval string `toml:"autonomy_pulse_interval"`
 }
 
 type Paths struct {
@@ -127,12 +119,6 @@ func defaultConfig() Config {
 			ReasoningSummary: "concise",
 			EnableApps:       true,
 			EnableSkills:     true,
-		},
-		Behavior: BehaviorConfig{
-			WakeSummaryThreshold:  "4h",
-			JobPollInterval:       "30s",
-			ReleaseWatchInterval:  "6h",
-			AutonomyPulseInterval: "7m",
 		},
 	}
 }

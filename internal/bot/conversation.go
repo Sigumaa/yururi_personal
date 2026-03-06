@@ -38,10 +38,7 @@ func (a *App) runConversationTurn(ctx context.Context, threadID string, msg memo
 }
 
 func (a *App) ensureAutonomyPulseJob(ctx context.Context) error {
-	schedule := strings.TrimSpace(a.cfg.Behavior.AutonomyPulseInterval)
-	if schedule == "" {
-		return nil
-	}
+	schedule := defaultAutonomyPulseSchedule
 
 	existing, ok, err := a.store.GetJob(ctx, autonomyPulseJobID)
 	if err != nil {
@@ -53,7 +50,7 @@ func (a *App) ensureAutonomyPulseJob(ctx context.Context) error {
 	}
 
 	job := jobs.NewJob(autonomyPulseJobID, "autonomy_pulse", "autonomy pulse", "", schedule, nil)
-	job.NextRunAt = time.Now().UTC().Add(mustDuration(schedule, 7*time.Minute))
+	job.NextRunAt = time.Now().UTC().Add(defaultAutonomyPulseInterval)
 	if err := a.store.UpsertJob(ctx, job); err != nil {
 		return err
 	}
@@ -62,7 +59,7 @@ func (a *App) ensureAutonomyPulseJob(ctx context.Context) error {
 }
 
 func (a *App) handleAutonomyPulseJob(ctx context.Context, job jobs.Job) (jobs.Result, error) {
-	nextRunAt := time.Now().UTC().Add(mustDuration(job.ScheduleExpr, mustDuration(a.cfg.Behavior.AutonomyPulseInterval, 7*time.Minute)))
+	nextRunAt := time.Now().UTC().Add(mustDuration(job.ScheduleExpr, defaultAutonomyPulseInterval))
 	session, err := a.ensureAutonomyThread(ctx)
 	if err != nil {
 		return jobs.Result{NextRunAt: nextRunAt}, err

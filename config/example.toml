@@ -20,9 +20,3 @@ reasoning_effort = "medium"
 reasoning_summary = "concise"
 enable_apps = true
 enable_skills = true
-
-[behavior]
-wake_summary_threshold = "4h"
-job_poll_interval = "30s"
-release_watch_interval = "6h"
-autonomy_pulse_interval = "7m"

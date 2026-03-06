@@ -942,7 +942,7 @@ func (a *App) registerJobExtraTools(registry *codex.ToolRegistry) {
 			input.Repo = "openai/codex"
 		}
 		if input.Schedule == "" {
-			input.Schedule = a.cfg.Behavior.ReleaseWatchInterval
+			input.Schedule = defaultWatchSchedule
 		}
 		job := jobs.NewJob(jobID("release-watch"), "codex_release_watch", "release watch", input.ChannelID, input.Schedule, map[string]any{
 			"repo": input.Repo,
@@ -1013,7 +1013,7 @@ func (a *App) registerJobExtraTools(registry *codex.ToolRegistry) {
 			return codex.ToolResponse{}, errors.New("url is required")
 		}
 		if input.Schedule == "" {
-			input.Schedule = a.cfg.Behavior.ReleaseWatchInterval
+			input.Schedule = defaultWatchSchedule
 		}
 		job := jobs.NewJob(jobID("url-watch"), "url_watch", "url watch", input.ChannelID, input.Schedule, map[string]any{
 			"url": input.URL,
