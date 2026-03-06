@@ -567,11 +567,11 @@ func (c *Client) readLoop() {
 }
 
 func (c *Client) handleServerRequest(rawID json.RawMessage, method string, params json.RawMessage) {
-	id := decodeID(rawID)
+	idValue := decodeIDValue(rawID)
 	write := func(result any) {
 		_ = c.writeJSON(map[string]any{
 			"jsonrpc": "2.0",
-			"id":      id,
+			"id":      idValue,
 			"result":  result,
 		})
 	}
@@ -645,7 +645,7 @@ func (c *Client) handleServerRequest(rawID json.RawMessage, method string, param
 	default:
 		_ = c.writeJSON(map[string]any{
 			"jsonrpc": "2.0",
-			"id":      id,
+			"id":      idValue,
 			"error": map[string]any{
 				"code":    -32601,
 				"message": "unsupported server request",
@@ -819,6 +819,14 @@ func decodeID(raw json.RawMessage) string {
 	var asInt int64
 	if err := json.Unmarshal(raw, &asInt); err == nil {
 		return strconv.FormatInt(asInt, 10)
+	}
+	return strings.TrimSpace(string(raw))
+}
+
+func decodeIDValue(raw json.RawMessage) any {
+	var value any
+	if err := json.Unmarshal(raw, &value); err == nil {
+		return value
 	}
 	return strings.TrimSpace(string(raw))
 }

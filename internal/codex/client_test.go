@@ -145,3 +145,34 @@ func TestNormalizeInterruptedResult(t *testing.T) {
 		t.Fatalf("expected nil, got %v", err)
 	}
 }
+
+func TestDecodeIDValuePreservesJSONRPCIDType(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  json.RawMessage
+		want string
+	}{
+		{
+			name: "number",
+			raw:  json.RawMessage(`60`),
+			want: `60`,
+		},
+		{
+			name: "string",
+			raw:  json.RawMessage(`"call-1"`),
+			want: `"call-1"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := json.Marshal(decodeIDValue(tt.raw))
+			if err != nil {
+				t.Fatalf("marshal id value: %v", err)
+			}
+			if string(got) != tt.want {
+				t.Fatalf("unexpected id value: got %s want %s", string(got), tt.want)
+			}
+		})
+	}
+}
