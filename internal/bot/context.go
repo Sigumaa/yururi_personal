@@ -109,7 +109,7 @@ func buildCapabilitiesContext(tools []codex.ToolSpec) string {
 	lines = append(lines, "")
 	lines = append(lines, "## Available Tools")
 	for _, tool := range tools {
-		line := fmt.Sprintf("- `%s`: %s", tool.Name, tool.Description)
+		line := fmt.Sprintf("- `%s`: %s", codex.ExternalToolName(tool.Name), tool.Description)
 		if args := renderToolArguments(tool.InputSchema); args != "none" {
 			line += fmt.Sprintf(" | args: %s", args)
 		}

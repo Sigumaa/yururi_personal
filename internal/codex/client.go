@@ -240,11 +240,11 @@ func (c *Client) DynamicToolSignature() string {
 	if c == nil || c.tools == nil {
 		return ""
 	}
-	specs := c.tools.Specs()
-	if len(specs) == 0 {
+	dynamicTools := c.dynamicToolParams()
+	if len(dynamicTools) == 0 {
 		return ""
 	}
-	raw, err := json.Marshal(specs)
+	raw, err := json.Marshal(dynamicTools)
 	if err != nil {
 		return ""
 	}
@@ -275,7 +275,7 @@ func (c *Client) dynamicToolParams() []map[string]any {
 	out := make([]map[string]any, 0, len(specs))
 	for _, spec := range specs {
 		out = append(out, map[string]any{
-			"name":        spec.Name,
+			"name":        ExternalToolName(spec.Name),
 			"description": spec.Description,
 			"inputSchema": spec.InputSchema,
 		})
@@ -531,17 +531,21 @@ func (c *Client) handleServerRequest(rawID json.RawMessage, method string, param
 			write(map[string]any{"success": false, "contentItems": []map[string]any{{"type": "inputText", "text": "invalid tool request"}}})
 			return
 		}
-		c.logger.Info("codex tool call", "tool", request.Tool, "arguments", strings.TrimSpace(string(request.Arguments)))
+		internalTool, ok := c.tools.ResolveExternalName(request.Tool)
+		if !ok {
+			internalTool = request.Tool
+		}
+		c.logger.Info("codex tool call", "tool", request.Tool, "internal_tool", internalTool, "arguments", strings.TrimSpace(string(request.Arguments)))
 		callCtx := WithToolCallMeta(context.Background(), ToolCallMeta{
 			ThreadID:  request.ThreadID,
 			TurnID:    request.TurnID,
 			CallID:    request.CallID,
-			Tool:      request.Tool,
+			Tool:      internalTool,
 			StartedAt: time.Now(),
 		})
-		response, err := c.tools.Call(callCtx, request.Tool, request.Arguments)
+		response, err := c.tools.Call(callCtx, internalTool, request.Arguments)
 		if err != nil {
-			c.logger.Warn("codex tool call failed", "tool", request.Tool, "error", err)
+			c.logger.Warn("codex tool call failed", "tool", request.Tool, "internal_tool", internalTool, "error", err)
 			write(map[string]any{
 				"success": false,
 				"contentItems": []map[string]any{
@@ -550,7 +554,7 @@ func (c *Client) handleServerRequest(rawID json.RawMessage, method string, param
 			})
 			return
 		}
-		c.logger.Debug("codex tool call completed", "tool", request.Tool, "response_preview", previewToolResponse(response, 1200))
+		c.logger.Debug("codex tool call completed", "tool", request.Tool, "internal_tool", internalTool, "response_preview", previewToolResponse(response, 1200))
 		write(response)
 	case "item/commandExecution/requestApproval":
 		write(map[string]any{"decision": "acceptForSession"})

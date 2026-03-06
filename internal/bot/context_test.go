@@ -58,7 +58,7 @@ func TestBuildCapabilitiesContextListsRealCapabilities(t *testing.T) {
 	if !strings.Contains(raw, "Discord 専用 MCP サーバーはまだない") {
 		t.Fatalf("expected current limit note, got %s", raw)
 	}
-	if !strings.Contains(raw, "`discord.send_message`") {
+	if !strings.Contains(raw, "`discord__send_message`") {
 		t.Fatalf("expected tool catalog, got %s", raw)
 	}
 	if !strings.Contains(raw, "女子大生メイド") {

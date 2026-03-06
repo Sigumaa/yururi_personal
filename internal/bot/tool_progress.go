@@ -65,7 +65,7 @@ func (a *App) requireVisibleProgress(ctx context.Context, toolName string) error
 	if !ok || channelID == "" {
 		return nil
 	}
-	return fmt.Errorf("visible progress required before %s: first call discord.send_message with a brief update to channel_id=%s, then retry the tool", toolName, channelID)
+	return fmt.Errorf("visible progress required before %s: first call %s with a brief update to channel_id=%s, then retry the tool", toolName, codex.ExternalToolName("discord.send_message"), channelID)
 }
 
 func (a *App) channelIDForThread(threadID string) (string, bool) {

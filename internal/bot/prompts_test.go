@@ -57,7 +57,7 @@ func TestBuildBackgroundTaskPromptForcesExecution(t *testing.T) {
 	if !strings.Contains(prompt, "tool を使わずに、できない・接続できない・確認できないと決めつけない") {
 		t.Fatalf("expected tool-first guard, got %s", prompt)
 	}
-	if !strings.Contains(prompt, "discord.describe_server") {
+	if !strings.Contains(prompt, "discord__describe_server") {
 		t.Fatalf("expected discord tool hint, got %s", prompt)
 	}
 	if !strings.Contains(prompt, "サーバー俯瞰と job 一覧を確認して短くまとめる") {
@@ -84,7 +84,7 @@ func TestPlannerPromptPrefersImmediateExecutionOverJobs(t *testing.T) {
 	if !strings.Contains(prompt, "その場で終わる確認、俯瞰、読取り、軽い編集は、job にせず今この turn で完了させる") {
 		t.Fatalf("expected prompt to avoid unnecessary jobs, got %s", prompt)
 	}
-	if !strings.Contains(prompt, "discord.send_message を使って会話の途中で複数回話してよい") {
+	if !strings.Contains(prompt, "discord__send_message を使って会話の途中で複数回話してよい") {
 		t.Fatalf("expected prompt to allow multiple visible updates, got %s", prompt)
 	}
 	if !strings.Contains(prompt, "actions に announcement_text を入れると、実行の前に自然な一言を挟める") {
@@ -115,10 +115,10 @@ func TestConversationPromptAllowsDirectToolsAndMultiReplies(t *testing.T) {
 	if !strings.Contains(prompt, "その場で終わる確認、俯瞰、読取り、軽い編集は、job にせず今この turn で完了させる") {
 		t.Fatalf("expected immediate execution guidance, got %s", prompt)
 	}
-	if !strings.Contains(prompt, "discord.send_message を使って複数回話してよい") {
+	if !strings.Contains(prompt, "discord__send_message を使って複数回話してよい") {
 		t.Fatalf("expected multi-reply guidance, got %s", prompt)
 	}
-	if !strings.Contains(prompt, "media.load_attachments") {
+	if !strings.Contains(prompt, "media__load_attachments") {
 		t.Fatalf("expected attachment tool hint, got %s", prompt)
 	}
 	if !strings.Contains(prompt, "current message の画像添付はこの turn にすでに載っている") {

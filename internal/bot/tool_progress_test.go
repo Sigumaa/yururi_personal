@@ -29,7 +29,7 @@ func TestRequireVisibleProgressBlocksMutatingToolUntilModelSpeaks(t *testing.T) 
 	if err == nil {
 		t.Fatal("expected progress requirement error")
 	}
-	if !strings.Contains(err.Error(), "discord.send_message") {
+	if !strings.Contains(err.Error(), "discord__send_message") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !strings.Contains(err.Error(), "channel_id=channel-1") {

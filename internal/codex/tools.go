@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 )
@@ -115,4 +116,27 @@ func (r *ToolRegistry) Specs() []ToolSpec {
 		}
 	})
 	return out
+}
+
+func ExternalToolName(name string) string {
+	replacer := strings.NewReplacer(".", "__", " ", "_", "/", "_", ":", "_")
+	value := replacer.Replace(strings.TrimSpace(name))
+	if value == "" {
+		return "tool"
+	}
+	return value
+}
+
+func (r *ToolRegistry) ResolveExternalName(name string) (string, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if _, ok := r.handlers[name]; ok {
+		return name, true
+	}
+	for internal := range r.handlers {
+		if ExternalToolName(internal) == name {
+			return internal, true
+		}
+	}
+	return "", false
 }

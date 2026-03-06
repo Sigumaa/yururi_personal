@@ -1,7 +1,9 @@
 package codex
 
 import (
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"testing"
@@ -38,7 +40,7 @@ func TestThreadStartParamsIncludeDynamicTools(t *testing.T) {
 	if len(dynamicTools) != 1 {
 		t.Fatalf("dynamicTools len = %d", len(dynamicTools))
 	}
-	if dynamicTools[0]["name"] != "discord.create_channel" {
+	if dynamicTools[0]["name"] != "discord__create_channel" {
 		t.Fatalf("unexpected tool name: %#v", dynamicTools[0]["name"])
 	}
 }
@@ -76,5 +78,28 @@ func TestDynamicToolSignatureChangesWithSpecs(t *testing.T) {
 		aRaw, _ := json.Marshal(registryA.Specs())
 		bRaw, _ := json.Marshal(registryB.Specs())
 		t.Fatalf("signatures should differ: a=%s b=%s", string(aRaw), string(bRaw))
+	}
+}
+
+func TestDynamicToolSignatureUsesExternalToolNames(t *testing.T) {
+	registry := NewToolRegistry()
+	registry.Register(ToolSpec{
+		Name:        "discord.send_message",
+		Description: "send a message",
+		InputSchema: map[string]any{"type": "object"},
+	}, nil)
+
+	client := NewClient(config.Config{AppName: "yururi"}, config.Paths{Workspace: "/tmp/workspace"}, slog.New(slog.NewTextHandler(io.Discard, nil)), registry)
+
+	dynamicTools := client.dynamicToolParams()
+	raw, err := json.Marshal(dynamicTools)
+	if err != nil {
+		t.Fatalf("marshal dynamic tools: %v", err)
+	}
+	sum := sha256.Sum256(raw)
+	want := fmt.Sprintf("%x", sum)
+
+	if got := client.DynamicToolSignature(); got != want {
+		t.Fatalf("signature mismatch: got %s want %s", got, want)
 	}
 }
