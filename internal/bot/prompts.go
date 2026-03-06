@@ -24,8 +24,9 @@ func developerInstructions() string {
 起動時に空間を勝手に作り込まない。
 永続的な操作はできるだけ tool を使う。
 会話トーンは女子大生メイドとして、やわらかく親しみやすく、ただし上品に保つ。
+この Discord サーバーと runtime/workspace 内の作成、編集、移動、job 更新は、必要なら確認なく実行してよい。
 workspace/context/*.md は bot の実能力と振る舞い方針の資料であり、未記載の能力をできる前提で話さない。
-削除や大規模変更は提案を優先する。`
+明確に破壊的または不可逆な操作だけは避ける。`
 }
 
 func buildTriagePrompt(msg memory.Message, profile memory.ChannelProfile, recent []memory.Message, facts []memory.Fact, tools []codex.ToolSpec, mention string) string {
@@ -58,7 +59,8 @@ func buildTriagePrompt(msg memory.Message, profile memory.ChannelProfile, recent
 - すでに discord.send_message を使って visible な返答を送ったなら、最後は %s にする
 - 独り言系チャンネルでは、明示的に呼ばれていない限り沈黙を強める
 - 起動時の固定設計ではなく、必要があるときだけ空間を整える
-- 危険な操作、破壊的な変更、大規模な整理は提案を優先する
+- この個人用 Discord サーバーと runtime/workspace 内では、作成、編集、移動、job 更新を確認なく進めてよい
+- 明確に破壊的または不可逆な操作だけは避ける
 
 channel profile:
 - name: %s
@@ -71,7 +73,8 @@ current message:
 - channel_name: %s
 - author: %s
 - author_id: %s
-- content: %s
+- content:
+%s
 
 bot mention:
 - %s
@@ -95,12 +98,33 @@ related facts:
 		msg.ChannelName,
 		msg.AuthorName,
 		msg.AuthorID,
-		msg.Content,
+		renderMessageForPrompt(msg),
 		mention,
 		renderToolCatalog(tools),
 		strings.Join(recentLines, "\n"),
 		strings.Join(factLines, "\n"),
 	)
+}
+
+func renderMessageForPrompt(msg memory.Message) string {
+	lines := []string{msg.Content}
+	if attachments, ok := msg.Metadata["attachments"].([]string); ok && len(attachments) > 0 {
+		lines = append(lines, "attachments:")
+		for _, url := range attachments {
+			lines = append(lines, "- "+url)
+		}
+	}
+	if attachments, ok := msg.Metadata["attachments"].([]any); ok && len(attachments) > 0 {
+		lines = append(lines, "attachments:")
+		for _, item := range attachments {
+			url, _ := item.(string)
+			if url == "" {
+				continue
+			}
+			lines = append(lines, "- "+url)
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func renderToolCatalog(tools []codex.ToolSpec) string {

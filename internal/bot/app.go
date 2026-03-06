@@ -70,7 +70,9 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	app.tools = tools
 	app.codex = codex.NewClient(cfg, paths, logger, tools)
 	app.scheduler = jobs.NewScheduler(store, mustDuration(cfg.Behavior.JobPollInterval, 30*time.Second))
+	app.scheduler.SetLogger(logger)
 	app.scheduler.Register("codex_release_watch", jobHandlerFunc(app.handleReleaseWatchJob))
+	app.scheduler.Register("url_watch", jobHandlerFunc(app.handleURLWatchJob))
 	app.scheduler.Register("daily_summary", jobHandlerFunc(app.handleDailySummaryJob))
 	app.scheduler.Register("weekly_review", jobHandlerFunc(app.handleWeeklyReviewJob))
 	app.scheduler.Register("growth_log", jobHandlerFunc(app.handleGrowthLogJob))
@@ -97,6 +99,7 @@ func (a *App) Close() error {
 }
 
 func (a *App) Bootstrap(ctx context.Context) error {
+	a.logger.Info("bootstrap start", "runtime_root", a.paths.Root)
 	if _, err := runtimecfg.EnsureLayout(a.cfg); err != nil {
 		return err
 	}
@@ -106,6 +109,7 @@ func (a *App) Bootstrap(ctx context.Context) error {
 	if _, err := a.codex.Bootstrap(ctx); err != nil {
 		a.logger.Warn("codex bootstrap skipped", "error", err)
 	}
+	a.logger.Info("bootstrap ready", "workspace", a.paths.Workspace, "tool_count", len(a.tools.Specs()))
 	return nil
 }
 
@@ -123,6 +127,7 @@ func (a *App) Run(ctx context.Context) error {
 	} else {
 		a.thread = session
 		_ = a.store.SetKV(ctx, "codex.main_thread_id", session.ID)
+		a.logger.Info("codex thread ready", "thread_id", session.ID)
 		if err := a.primeBotContext(ctx); err != nil {
 			a.logger.Warn("prime bot context failed", "error", err)
 		}
@@ -142,6 +147,7 @@ func (a *App) Run(ctx context.Context) error {
 	if err := a.discord.Open(); err != nil {
 		return err
 	}
+	a.logger.Info("discord connected", "guild_id", a.cfg.Discord.GuildID, "self_user_id", a.discord.SelfUserID())
 
 	go func() {
 		err := a.scheduler.Run(ctx)
@@ -151,6 +157,7 @@ func (a *App) Run(ctx context.Context) error {
 	}()
 
 	<-ctx.Done()
+	a.logger.Info("run loop stopped")
 	return nil
 }
 
@@ -171,9 +178,11 @@ func (a *App) processMessage(session *discordgo.Session, event *discordgo.Messag
 		Content:     event.Content,
 		CreatedAt:   event.Timestamp,
 		Metadata: map[string]any{
-			"guild_id": event.GuildID,
+			"guild_id":    event.GuildID,
+			"attachments": attachmentURLs(event.Attachments),
 		},
 	}
+	a.logger.Info("message received", "channel", channelName, "channel_id", event.ChannelID, "author", event.Author.Username, "message_id", event.ID, "attachments", len(event.Attachments))
 	if err := a.store.SaveMessage(ctx, msg); err != nil {
 		a.logger.Error("save message failed", "error", err)
 		return
@@ -187,12 +196,14 @@ func (a *App) processMessage(session *discordgo.Session, event *discordgo.Messag
 
 	recent, _ := a.store.RecentMessages(ctx, event.ChannelID, 12)
 	facts, _ := a.store.SearchFacts(ctx, channelName, 8)
+	a.logger.Info("message context ready", "channel", channelName, "recent_messages", len(recent), "related_facts", len(facts), "profile_kind", profile.Kind)
 
 	decisionValue, err := a.decide(ctx, msg, profile, recent, facts)
 	if err != nil {
 		a.logger.Error("triage failed", "error", err)
 		return
 	}
+	a.logger.Info("decision ready", "channel", channelName, "action", decisionValue.Action, "reply_len", len(strings.TrimSpace(decisionValue.Message)))
 	if err := a.applyDecision(ctx, msg, profile, decisionValue); err != nil {
 		a.logger.Error("apply decision failed", "error", err)
 	}
@@ -224,6 +235,7 @@ func (a *App) processPresence(event *discordgo.PresenceUpdate) {
 	if err := a.store.SavePresence(ctx, current); err != nil {
 		a.logger.Warn("save presence failed", "error", err)
 	}
+	a.logger.Info("presence updated", "status", current.Status, "activities", strings.Join(current.Activities, ","))
 
 	if ok && isOffline(previous.Status) && !isOffline(current.Status) {
 		threshold := mustDuration(a.cfg.Behavior.WakeSummaryThreshold, 4*time.Hour)
@@ -243,6 +255,8 @@ func (a *App) processPresence(event *discordgo.PresenceUpdate) {
 			job.NextRunAt = now.Add(10 * time.Second)
 			if err := a.store.UpsertJob(ctx, job); err != nil {
 				a.logger.Warn("schedule wake summary failed", "error", err)
+			} else {
+				a.logger.Info("wake summary scheduled", "job_id", job.ID, "channel_id", channelID)
 			}
 		}
 	}
@@ -256,11 +270,13 @@ func (a *App) decide(ctx context.Context, msg memory.Message, profile memory.Cha
 	prompt := buildTriagePrompt(msg, profile, recent, facts, a.tools.Specs(), a.discordSelfMention())
 	a.codexMu.Lock()
 	defer a.codexMu.Unlock()
+	a.logger.Info("codex turn start", "thread_id", a.thread.ID, "channel", msg.ChannelName, "message_id", msg.ID, "prompt_bytes", len(prompt))
 	raw, err := a.codex.RunTurn(ctx, a.thread.ID, prompt)
 	if err != nil {
 		a.logger.Warn("codex turn failed", "channel", msg.ChannelName, "message_id", msg.ID, "error", err)
 		return decision.ReplyDecision{}, fmt.Errorf("run codex turn: %w", err)
 	}
+	a.logger.Info("codex turn completed", "channel", msg.ChannelName, "message_id", msg.ID, "response_bytes", len(raw))
 	return parseAssistantReply(raw), nil
 }
 
@@ -289,9 +305,11 @@ func (a *App) applyDecision(ctx context.Context, msg memory.Message, profile mem
 	}
 
 	if selected.Action != decision.ActionIgnore && strings.TrimSpace(selected.Message) != "" {
-		if _, err := a.discord.SendMessage(ctx, msg.ChannelID, selected.Message); err != nil {
+		sentID, err := a.discord.SendMessage(ctx, msg.ChannelID, selected.Message)
+		if err != nil {
 			return err
 		}
+		a.logger.Info("reply sent", "channel", msg.ChannelName, "channel_id", msg.ChannelID, "message_id", sentID)
 	}
 	return nil
 }
@@ -328,6 +346,7 @@ func (a *App) enqueueJob(ctx context.Context, msg memory.Message, req decision.J
 	if req.Kind == "codex_release_watch" && job.Payload["repo"] == nil {
 		job.Payload["repo"] = "openai/codex"
 	}
+	a.logger.Info("job enqueued", "job_id", job.ID, "kind", job.Kind, "channel_id", job.ChannelID, "schedule", job.ScheduleExpr)
 	return a.store.UpsertJob(ctx, job)
 }
 
@@ -363,6 +382,7 @@ func (a *App) resolveChannelProfile(ctx context.Context, channelID string, chann
 	if err := a.store.UpsertChannelProfile(ctx, profile); err != nil {
 		return memory.ChannelProfile{}, err
 	}
+	a.logger.Info("channel profile created", "channel", channelName, "channel_id", channelID, "kind", kind, "reply_aggressiveness", replyAgg, "autonomy_level", autonomy)
 	return profile, nil
 }
 
@@ -683,6 +703,7 @@ func (a *App) registerTools(registry *codex.ToolRegistry) {
 		}
 		return textTool("ok"), nil
 	})
+	a.registerExtraTools(registry)
 }
 
 func (a *App) channelName(session *discordgo.Session, channelID string) string {
@@ -755,6 +776,20 @@ func textTool(text string) codex.ToolResponse {
 			{Type: "inputText", Text: text},
 		},
 	}
+}
+
+func attachmentURLs(attachments []*discordgo.MessageAttachment) []string {
+	if len(attachments) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(attachments))
+	for _, attachment := range attachments {
+		if attachment == nil || strings.TrimSpace(attachment.URL) == "" {
+			continue
+		}
+		out = append(out, attachment.URL)
+	}
+	return out
 }
 
 func mustDuration(value string, fallback time.Duration) time.Duration {

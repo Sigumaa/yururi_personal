@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"context"
+	"log/slog"
 	"time"
 )
 
@@ -40,6 +41,7 @@ type Scheduler struct {
 	store    Store
 	interval time.Duration
 	handlers map[string]Handler
+	logger   *slog.Logger
 }
 
 type Handler interface {
@@ -61,6 +63,10 @@ func NewScheduler(store Store, interval time.Duration) *Scheduler {
 
 func (s *Scheduler) Register(kind string, handler Handler) {
 	s.handlers[kind] = handler
+}
+
+func (s *Scheduler) SetLogger(logger *slog.Logger) {
+	s.logger = logger
 }
 
 func (s *Scheduler) Run(ctx context.Context) error {
@@ -85,22 +91,34 @@ func (s *Scheduler) tick(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if s.logger != nil && len(due) > 0 {
+		s.logger.Info("scheduler tick", "due_jobs", len(due), "at", now.Format(time.RFC3339))
+	}
 	for _, job := range due {
 		handler, ok := s.handlers[job.Kind]
 		if !ok {
 			nextRun := now.Add(30 * time.Minute)
+			if s.logger != nil {
+				s.logger.Warn("scheduler missing handler", "job_id", job.ID, "kind", job.Kind, "next_run_at", nextRun.Format(time.RFC3339))
+			}
 			if err := s.store.UpdateJobState(ctx, job.ID, StateFailed, nextRun, "missing handler", nil); err != nil {
 				return err
 			}
 			continue
 		}
 		lastRunAt := now
+		if s.logger != nil {
+			s.logger.Info("scheduler job start", "job_id", job.ID, "kind", job.Kind, "channel_id", job.ChannelID)
+		}
 		if err := s.store.UpdateJobState(ctx, job.ID, StateRunning, now, "", &lastRunAt); err != nil {
 			return err
 		}
 		result, err := handler.Run(ctx, job)
 		if err != nil {
 			nextRun := nextRun(job, now)
+			if s.logger != nil {
+				s.logger.Warn("scheduler job failed", "job_id", job.ID, "kind", job.Kind, "next_run_at", nextRun.Format(time.RFC3339), "error", err)
+			}
 			if err := s.store.UpdateJobState(ctx, job.ID, StateFailed, nextRun, err.Error(), &lastRunAt); err != nil {
 				return err
 			}
@@ -109,6 +127,9 @@ func (s *Scheduler) tick(ctx context.Context) error {
 		state := StatePending
 		if result.Done {
 			state = StateCompleted
+		}
+		if s.logger != nil {
+			s.logger.Info("scheduler job completed", "job_id", job.ID, "kind", job.Kind, "done", result.Done, "next_run_at", result.NextRunAt.Format(time.RFC3339))
 		}
 		if err := s.store.UpdateJobState(ctx, job.ID, state, result.NextRunAt, "", &lastRunAt); err != nil {
 			return err

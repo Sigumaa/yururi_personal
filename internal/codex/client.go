@@ -295,6 +295,7 @@ func (c *Client) runTurn(ctx context.Context, threadID string, prompt string, ou
 	if err := c.Start(ctx); err != nil {
 		return "", err
 	}
+	c.logger.Info("turn start", "thread_id", threadID, "prompt_bytes", len(prompt), "json_schema", outputSchema != nil)
 	params := map[string]any{
 		"threadId": threadID,
 		"input": []map[string]any{
@@ -352,6 +353,7 @@ func (c *Client) runTurn(ctx context.Context, threadID string, prompt string, ou
 		if result.Error != nil {
 			return "", result.Error
 		}
+		c.logger.Info("turn completed", "thread_id", threadID, "turn_id", response.Turn.ID, "response_bytes", len(result.Text), "elapsed", time.Since(waiter.receivedAt))
 		if outputSchema != nil {
 			return normalizeJSONText(result.Text), nil
 		}
@@ -512,6 +514,7 @@ func (c *Client) handleServerRequest(rawID json.RawMessage, method string, param
 			if len(question.Options) > 0 {
 				answer = question.Options[0].Label
 			}
+			c.logger.Info("auto answered requestUserInput", "question_id", question.ID, "answer", answer)
 			answers[question.ID] = map[string]any{
 				"answers": []string{answer},
 			}

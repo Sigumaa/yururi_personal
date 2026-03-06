@@ -64,4 +64,7 @@ func TestBuildCapabilitiesContextListsRealCapabilities(t *testing.T) {
 	if !strings.Contains(raw, "女子大生メイド") {
 		t.Fatalf("expected persona note, got %s", raw)
 	}
+	if !strings.Contains(raw, "確認なく実行してよい") {
+		t.Fatalf("expected act-first guidance, got %s", raw)
+	}
 }

@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -128,5 +129,94 @@ func TestLatestChannelIDForAuthor(t *testing.T) {
 	}
 	if !ok || got != "c2" {
 		t.Fatalf("unexpected latest channel: ok=%v got=%s", ok, got)
+	}
+}
+
+func TestListDeleteFactsAndChannelActivity(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "yururi.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	for i, channelID := range []string{"c1", "c1", "c2"} {
+		if err := store.SaveMessage(ctx, Message{
+			ID:          fmt.Sprintf("m%d", i),
+			ChannelID:   channelID,
+			ChannelName: map[string]string{"c1": "general", "c2": "notes"}[channelID],
+			AuthorID:    "u1",
+			AuthorName:  "owner",
+			Content:     "note",
+			CreatedAt:   now.Add(time.Duration(i) * time.Minute),
+		}); err != nil {
+			t.Fatalf("save message %d: %v", i, err)
+		}
+	}
+
+	if err := store.UpsertFact(ctx, Fact{Kind: "preference", Key: "tone", Value: "soft"}); err != nil {
+		t.Fatalf("upsert fact tone: %v", err)
+	}
+	if err := store.UpsertFact(ctx, Fact{Kind: "preference", Key: "tempo", Value: "quiet"}); err != nil {
+		t.Fatalf("upsert fact tempo: %v", err)
+	}
+
+	facts, err := store.ListFacts(ctx, "preference", 10)
+	if err != nil {
+		t.Fatalf("list facts: %v", err)
+	}
+	if len(facts) != 2 {
+		t.Fatalf("expected 2 facts, got %d", len(facts))
+	}
+	if err := store.DeleteFact(ctx, "preference", "tone"); err != nil {
+		t.Fatalf("delete fact: %v", err)
+	}
+	facts, err = store.ListFacts(ctx, "preference", 10)
+	if err != nil {
+		t.Fatalf("list facts after delete: %v", err)
+	}
+	if len(facts) != 1 || facts[0].Key != "tempo" {
+		t.Fatalf("unexpected facts after delete: %#v", facts)
+	}
+
+	activity, err := store.ChannelActivitySince(ctx, now.Add(-time.Hour), 10)
+	if err != nil {
+		t.Fatalf("channel activity: %v", err)
+	}
+	if len(activity) != 2 {
+		t.Fatalf("expected 2 activity rows, got %d", len(activity))
+	}
+	if activity[0].ChannelID != "c1" || activity[0].MessageCount != 2 {
+		t.Fatalf("unexpected top activity row: %#v", activity[0])
+	}
+}
+
+func TestListChannelProfiles(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "yururi.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	if err := store.UpsertChannelProfile(ctx, ChannelProfile{
+		ChannelID:           "c1",
+		Name:                "general",
+		Kind:                "conversation",
+		ReplyAggressiveness: 0.7,
+		AutonomyLevel:       0.6,
+		SummaryCadence:      "daily",
+	}); err != nil {
+		t.Fatalf("upsert channel profile: %v", err)
+	}
+
+	profiles, err := store.ListChannelProfiles(ctx)
+	if err != nil {
+		t.Fatalf("list channel profiles: %v", err)
+	}
+	if len(profiles) != 1 || profiles[0].ChannelID != "c1" {
+		t.Fatalf("unexpected profiles: %#v", profiles)
 	}
 }

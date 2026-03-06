@@ -49,6 +49,13 @@ type ChannelProfile struct {
 	Metadata            map[string]any
 }
 
+type ChannelActivity struct {
+	ChannelID     string
+	ChannelName   string
+	MessageCount  int
+	LastMessageAt time.Time
+}
+
 type Summary struct {
 	ID        int64
 	Period    string
@@ -73,6 +80,9 @@ func Open(path string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	db.SetConnMaxLifetime(0)
 	store := &Store{db: db}
 	if err := store.migrate(context.Background()); err != nil {
 		_ = db.Close()
@@ -88,6 +98,7 @@ func (s *Store) Close() error {
 func (s *Store) migrate(ctx context.Context) error {
 	stmts := []string{
 		`PRAGMA journal_mode = WAL;`,
+		`PRAGMA busy_timeout = 5000;`,
 		`CREATE TABLE IF NOT EXISTS raw_messages (
 			id TEXT PRIMARY KEY,
 			channel_id TEXT NOT NULL,
@@ -349,6 +360,54 @@ func (s *Store) SearchFacts(ctx context.Context, query string, limit int) ([]Fac
 	return out, rows.Err()
 }
 
+func (s *Store) ListFacts(ctx context.Context, kind string, limit int) ([]Fact, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+
+	query := `
+		SELECT id, kind, key, value, source_message_id, created_at, updated_at
+		FROM facts
+	`
+	args := []any{}
+	if strings.TrimSpace(kind) != "" {
+		query += ` WHERE kind = ?`
+		args = append(args, kind)
+	}
+	query += ` ORDER BY updated_at DESC LIMIT ?`
+	args = append(args, limit)
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list facts: %w", err)
+	}
+	defer rows.Close()
+
+	var out []Fact
+	for rows.Next() {
+		var (
+			fact      Fact
+			createdAt string
+			updatedAt string
+		)
+		if err := rows.Scan(&fact.ID, &fact.Kind, &fact.Key, &fact.Value, &fact.SourceMessageID, &createdAt, &updatedAt); err != nil {
+			return nil, fmt.Errorf("scan fact: %w", err)
+		}
+		fact.CreatedAt = mustParseTime(createdAt)
+		fact.UpdatedAt = mustParseTime(updatedAt)
+		out = append(out, fact)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) DeleteFact(ctx context.Context, kind string, key string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM facts WHERE kind = ? AND key = ?`, kind, key)
+	if err != nil {
+		return fmt.Errorf("delete fact: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) UpsertChannelProfile(ctx context.Context, profile ChannelProfile) error {
 	meta, err := json.Marshal(emptyMap(profile.Metadata))
 	if err != nil {
@@ -393,6 +452,32 @@ func (s *Store) GetChannelProfile(ctx context.Context, channelID string) (Channe
 	return profile, true, nil
 }
 
+func (s *Store) ListChannelProfiles(ctx context.Context) ([]ChannelProfile, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT channel_id, name, kind, reply_aggressiveness, autonomy_level, summary_cadence, metadata_json
+		FROM channel_profiles
+		ORDER BY name ASC, channel_id ASC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("list channel profiles: %w", err)
+	}
+	defer rows.Close()
+
+	var out []ChannelProfile
+	for rows.Next() {
+		var (
+			profile ChannelProfile
+			rawMeta string
+		)
+		if err := rows.Scan(&profile.ChannelID, &profile.Name, &profile.Kind, &profile.ReplyAggressiveness, &profile.AutonomyLevel, &profile.SummaryCadence, &rawMeta); err != nil {
+			return nil, fmt.Errorf("scan channel profile: %w", err)
+		}
+		_ = json.Unmarshal([]byte(rawMeta), &profile.Metadata)
+		out = append(out, profile)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) SaveSummary(ctx context.Context, summary Summary) error {
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO summaries (period, channel_id, content, starts_at, ends_at, created_at)
@@ -431,6 +516,39 @@ func (s *Store) RecentSummaries(ctx context.Context, period string, limit int) (
 		summary.EndsAt = mustParseTime(endsAt)
 		summary.CreatedAt = mustParseTime(createdAt)
 		out = append(out, summary)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) ChannelActivitySince(ctx context.Context, start time.Time, limit int) ([]ChannelActivity, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT channel_id, channel_name, COUNT(*) AS message_count, MAX(created_at) AS last_message_at
+		FROM raw_messages
+		WHERE created_at >= ?
+		GROUP BY channel_id, channel_name
+		ORDER BY message_count DESC, last_message_at DESC
+		LIMIT ?
+	`, start.UTC().Format(time.RFC3339Nano), limit)
+	if err != nil {
+		return nil, fmt.Errorf("channel activity since: %w", err)
+	}
+	defer rows.Close()
+
+	var out []ChannelActivity
+	for rows.Next() {
+		var (
+			activity    ChannelActivity
+			lastMessage string
+		)
+		if err := rows.Scan(&activity.ChannelID, &activity.ChannelName, &activity.MessageCount, &lastMessage); err != nil {
+			return nil, fmt.Errorf("scan channel activity: %w", err)
+		}
+		activity.LastMessageAt = mustParseTime(lastMessage)
+		out = append(out, activity)
 	}
 	return out, rows.Err()
 }

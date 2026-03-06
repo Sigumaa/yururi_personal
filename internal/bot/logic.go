@@ -39,6 +39,7 @@ func (a *App) handleReleaseWatchJob(ctx context.Context, job jobs.Job) (jobs.Res
 	if repo == "" {
 		repo = "openai/codex"
 	}
+	a.logger.Info("release watch check", "job_id", job.ID, "repo", repo)
 	release, err := a.fetchLatestStableRelease(ctx, repo)
 	nextRun := time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 6*time.Hour))
 	if err != nil {
@@ -107,8 +108,10 @@ func (a *App) runSummaryJob(ctx context.Context, job jobs.Job, period string, st
 		return jobs.Result{NextRunAt: nextRun, Done: done}, err
 	}
 	if len(messages) == 0 {
+		a.logger.Info("summary skipped", "job_id", job.ID, "period", period, "reason", "no messages")
 		return jobs.Result{NextRunAt: nextRun, Done: done}, nil
 	}
+	a.logger.Info("summary building", "job_id", job.ID, "period", period, "message_count", len(messages))
 
 	summaryText, err := a.summarizeMessages(ctx, period, start, end, messages)
 	if err != nil {
@@ -117,6 +120,7 @@ func (a *App) runSummaryJob(ctx context.Context, job jobs.Job, period string, st
 	if _, err := a.discord.SendMessage(ctx, job.ChannelID, summaryText); err != nil {
 		return jobs.Result{NextRunAt: nextRun, Done: done}, err
 	}
+	a.logger.Info("summary sent", "job_id", job.ID, "period", period, "channel_id", job.ChannelID)
 	if err := a.store.SaveSummary(ctx, memory.Summary{
 		Period:    period,
 		ChannelID: job.ChannelID,

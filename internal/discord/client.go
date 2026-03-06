@@ -20,6 +20,9 @@ type Service interface {
 	EnsureTextChannel(context.Context, string, ChannelSpec) (Channel, error)
 	EnsureCategory(context.Context, string, string) (Channel, error)
 	MoveChannel(context.Context, string, string) error
+	GetChannel(context.Context, string) (Channel, error)
+	RenameChannel(context.Context, string, string) (Channel, error)
+	SetChannelTopic(context.Context, string, string) (Channel, error)
 	RecentMessages(context.Context, string, int) ([]Message, error)
 	ListChannels(context.Context, string) ([]Channel, error)
 	CurrentPresence(context.Context, string, string) (Presence, error)
@@ -39,7 +42,9 @@ type ChannelSpec struct {
 type Channel struct {
 	ID       string
 	Name     string
+	Topic    string
 	ParentID string
+	Position int
 	Type     discordgo.ChannelType
 }
 
@@ -160,6 +165,34 @@ func (c *Client) MoveChannel(ctx context.Context, channelID string, parentID str
 	return nil
 }
 
+func (c *Client) GetChannel(ctx context.Context, channelID string) (Channel, error) {
+	channel, err := c.session.Channel(channelID)
+	if err != nil {
+		return Channel{}, fmt.Errorf("get channel: %w", err)
+	}
+	return toChannel(channel), nil
+}
+
+func (c *Client) RenameChannel(ctx context.Context, channelID string, name string) (Channel, error) {
+	channel, err := c.session.ChannelEditComplex(channelID, &discordgo.ChannelEdit{
+		Name: name,
+	})
+	if err != nil {
+		return Channel{}, fmt.Errorf("rename channel: %w", err)
+	}
+	return toChannel(channel), nil
+}
+
+func (c *Client) SetChannelTopic(ctx context.Context, channelID string, topic string) (Channel, error) {
+	channel, err := c.session.ChannelEditComplex(channelID, &discordgo.ChannelEdit{
+		Topic: topic,
+	})
+	if err != nil {
+		return Channel{}, fmt.Errorf("set channel topic: %w", err)
+	}
+	return toChannel(channel), nil
+}
+
 func (c *Client) RecentMessages(ctx context.Context, channelID string, limit int) ([]Message, error) {
 	if limit <= 0 {
 		limit = 20
@@ -237,7 +270,9 @@ func toChannel(channel *discordgo.Channel) Channel {
 	return Channel{
 		ID:       channel.ID,
 		Name:     channel.Name,
+		Topic:    channel.Topic,
 		ParentID: channel.ParentID,
+		Position: channel.Position,
 		Type:     channel.Type,
 	}
 }
