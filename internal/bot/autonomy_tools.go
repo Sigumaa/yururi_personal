@@ -24,55 +24,147 @@ func (a *App) registerAutonomyTools(registry *codex.ToolRegistry) {
 
 func (a *App) registerMemoryAutonomyTools(registry *codex.ToolRegistry) {
 	registry.Register(codex.ToolSpec{
-		Name:        "memory.search_messages",
-		Description: "会話履歴を横断検索して、関連する発話を拾う",
+		Name:        "memory.list_routines",
+		Description: "生活リズムや反復している行動のメモを一覧する",
+		InputSchema: objectSchema(fieldSchema("limit", "integer", "取得件数")),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+		var input struct {
+			Limit int `json:"limit"`
+		}
+		_ = json.Unmarshal(raw, &input)
+		routines, err := a.store.ListFacts(ctx, "routine", input.Limit)
+		if err != nil {
+			return codex.ToolResponse{}, err
+		}
+		if len(routines) == 0 {
+			return textTool("no routines"), nil
+		}
+		lines := make([]string, 0, len(routines))
+		for _, routine := range routines {
+			lines = append(lines, fmt.Sprintf("- %s: %s", routine.Key, routine.Value))
+		}
+		return textTool(strings.Join(lines, "\n")), nil
+	})
+
+	registry.Register(codex.ToolSpec{
+		Name:        "memory.write_routine",
+		Description: "生活リズムや反復行動のメモを routine として保存する",
 		InputSchema: objectSchema(
-			fieldSchema("query", "string", "検索語"),
-			fieldSchema("channel_id", "string", "特定チャンネルに絞る場合のチャンネル ID"),
-			fieldSchema("author_id", "string", "特定ユーザーに絞る場合のユーザー ID"),
-			fieldSchema("limit", "integer", "取得件数"),
+			fieldSchema("key", "string", "routine の一意キー"),
+			fieldSchema("value", "string", "routine の説明"),
+			fieldSchema("source_message_id", "string", "元メッセージ ID"),
 		),
 	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
 		var input struct {
-			Query     string `json:"query"`
-			ChannelID string `json:"channel_id"`
-			AuthorID  string `json:"author_id"`
-			Limit     int    `json:"limit"`
+			Key             string `json:"key"`
+			Value           string `json:"value"`
+			SourceMessageID string `json:"source_message_id"`
 		}
 		if err := json.Unmarshal(raw, &input); err != nil {
 			return codex.ToolResponse{}, err
 		}
-		if strings.TrimSpace(input.Query) == "" {
-			return codex.ToolResponse{}, errors.New("query is required")
+		if strings.TrimSpace(input.Key) == "" || strings.TrimSpace(input.Value) == "" {
+			return codex.ToolResponse{}, errors.New("key and value are required")
 		}
-		if input.Limit <= 0 {
-			input.Limit = 10
+		if err := a.store.UpsertFact(ctx, memory.Fact{
+			Kind:            "routine",
+			Key:             input.Key,
+			Value:           input.Value,
+			SourceMessageID: input.SourceMessageID,
+		}); err != nil {
+			return codex.ToolResponse{}, err
 		}
-		messages, err := a.store.SearchMessages(ctx, input.Query, max(input.Limit*4, 20))
+		return textTool("saved"), nil
+	})
+
+	registry.Register(codex.ToolSpec{
+		Name:        "memory.list_pending_promises",
+		Description: "まだ完了していない約束や引き受けたことを一覧する",
+		InputSchema: objectSchema(fieldSchema("limit", "integer", "取得件数")),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+		var input struct {
+			Limit int `json:"limit"`
+		}
+		_ = json.Unmarshal(raw, &input)
+		promises, err := a.store.ListFacts(ctx, "pending_promise", input.Limit)
 		if err != nil {
 			return codex.ToolResponse{}, err
 		}
-		filtered := make([]memory.Message, 0, input.Limit)
-		for _, msg := range messages {
-			if input.ChannelID != "" && msg.ChannelID != input.ChannelID {
-				continue
-			}
-			if input.AuthorID != "" && msg.AuthorID != input.AuthorID {
-				continue
-			}
-			filtered = append(filtered, msg)
-			if len(filtered) >= input.Limit {
-				break
-			}
+		if len(promises) == 0 {
+			return textTool("no pending promises"), nil
 		}
-		if len(filtered) == 0 {
-			return textTool("no matching messages"), nil
-		}
-		lines := make([]string, 0, len(filtered))
-		for _, msg := range filtered {
-			lines = append(lines, fmt.Sprintf("- [%s] %s/%s: %s", msg.CreatedAt.In(a.loc).Format(time.RFC3339), msg.ChannelName, msg.AuthorName, truncateText(msg.Content, 220)))
+		lines := make([]string, 0, len(promises))
+		for _, promise := range promises {
+			lines = append(lines, fmt.Sprintf("- %s: %s", promise.Key, promise.Value))
 		}
 		return textTool(strings.Join(lines, "\n")), nil
+	})
+
+	registry.Register(codex.ToolSpec{
+		Name:        "memory.write_pending_promise",
+		Description: "引き受けた依頼や未完了の約束を pending promise として保存する",
+		InputSchema: objectSchema(
+			fieldSchema("key", "string", "promise の一意キー"),
+			fieldSchema("value", "string", "promise の説明"),
+			fieldSchema("source_message_id", "string", "元メッセージ ID"),
+		),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+		var input struct {
+			Key             string `json:"key"`
+			Value           string `json:"value"`
+			SourceMessageID string `json:"source_message_id"`
+		}
+		if err := json.Unmarshal(raw, &input); err != nil {
+			return codex.ToolResponse{}, err
+		}
+		if strings.TrimSpace(input.Key) == "" || strings.TrimSpace(input.Value) == "" {
+			return codex.ToolResponse{}, errors.New("key and value are required")
+		}
+		if err := a.store.UpsertFact(ctx, memory.Fact{
+			Kind:            "pending_promise",
+			Key:             input.Key,
+			Value:           input.Value,
+			SourceMessageID: input.SourceMessageID,
+		}); err != nil {
+			return codex.ToolResponse{}, err
+		}
+		return textTool("saved"), nil
+	})
+
+	registry.Register(codex.ToolSpec{
+		Name:        "memory.close_pending_promise",
+		Description: "完了した promise を閉じて、必要なら decision に解決内容を残す",
+		InputSchema: objectSchema(
+			fieldSchema("key", "string", "閉じる promise のキー"),
+			fieldSchema("resolution", "string", "完了内容。省略可"),
+			fieldSchema("source_message_id", "string", "元メッセージ ID"),
+		),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+		var input struct {
+			Key             string `json:"key"`
+			Resolution      string `json:"resolution"`
+			SourceMessageID string `json:"source_message_id"`
+		}
+		if err := json.Unmarshal(raw, &input); err != nil {
+			return codex.ToolResponse{}, err
+		}
+		if strings.TrimSpace(input.Key) == "" {
+			return codex.ToolResponse{}, errors.New("key is required")
+		}
+		if err := a.store.DeleteFact(ctx, "pending_promise", input.Key); err != nil {
+			return codex.ToolResponse{}, err
+		}
+		if strings.TrimSpace(input.Resolution) != "" {
+			if err := a.store.UpsertFact(ctx, memory.Fact{
+				Kind:            "decision",
+				Key:             "promise/" + input.Key,
+				Value:           input.Resolution,
+				SourceMessageID: input.SourceMessageID,
+			}); err != nil {
+				return codex.ToolResponse{}, err
+			}
+		}
+		return textTool("closed"), nil
 	})
 
 	registry.Register(codex.ToolSpec{
@@ -133,9 +225,9 @@ func (a *App) registerMemoryAutonomyTools(registry *codex.ToolRegistry) {
 func (a *App) registerJobAutonomyTools(registry *codex.ToolRegistry) {
 	registry.Register(codex.ToolSpec{
 		Name:        "jobs.schedule_review",
-		Description: "open loop review や channel curation の継続 job を作る",
+		Description: "open loop、decision、self improvement、channel role、channel curation の review job を作る",
 		InputSchema: objectSchema(
-			fieldSchema("kind", "string", "open_loop_review または channel_curation"),
+			fieldSchema("kind", "string", "open_loop_review, decision_review, self_improvement_review, channel_role_review, channel_curation"),
 			fieldSchema("channel_id", "string", "投稿先チャンネル ID"),
 			fieldSchema("schedule", "string", "Go duration。省略時は kind ごとの既定値"),
 		),
@@ -157,6 +249,18 @@ func (a *App) registerJobAutonomyTools(registry *codex.ToolRegistry) {
 			if input.Schedule == "" {
 				input.Schedule = "168h"
 			}
+		case "decision_review":
+			if input.Schedule == "" {
+				input.Schedule = "120h"
+			}
+		case "self_improvement_review":
+			if input.Schedule == "" {
+				input.Schedule = "168h"
+			}
+		case "channel_role_review":
+			if input.Schedule == "" {
+				input.Schedule = "168h"
+			}
 		default:
 			return codex.ToolResponse{}, errors.New("unsupported review kind")
 		}
@@ -169,6 +273,36 @@ func (a *App) registerJobAutonomyTools(registry *codex.ToolRegistry) {
 }
 
 func (a *App) registerDiscordAutonomyTools(registry *codex.ToolRegistry) {
+	registry.Register(codex.ToolSpec{
+		Name:        "discord.describe_category_map",
+		Description: "カテゴリごとの配下チャンネル構造を俯瞰する",
+		InputSchema: objectSchema(),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+		if a.discord == nil {
+			return codex.ToolResponse{}, errors.New("discord is not connected")
+		}
+		channels, err := a.discord.ListChannels(ctx, a.cfg.Discord.GuildID)
+		if err != nil {
+			return codex.ToolResponse{}, err
+		}
+		return textTool(describeCategoryMap(channels)), nil
+	})
+
+	registry.Register(codex.ToolSpec{
+		Name:        "discord.find_orphan_channels",
+		Description: "親カテゴリのないテキストチャンネルや空のカテゴリを探す",
+		InputSchema: objectSchema(),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+		if a.discord == nil {
+			return codex.ToolResponse{}, errors.New("discord is not connected")
+		}
+		channels, err := a.discord.ListChannels(ctx, a.cfg.Discord.GuildID)
+		if err != nil {
+			return codex.ToolResponse{}, err
+		}
+		return textTool(describeOrphanChannels(channels)), nil
+	})
+
 	registry.Register(codex.ToolSpec{
 		Name:        "discord.find_stale_channels",
 		Description: "最近動きの少ないテキストチャンネルを探す",
@@ -220,30 +354,60 @@ func (a *App) registerDiscordAutonomyTools(registry *codex.ToolRegistry) {
 		Description: "活動量とプロフィールから空間整理の観点をまとめる",
 		InputSchema: objectSchema(fieldSchema("since_hours", "integer", "最近の活動を見る時間幅")),
 	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
-			if a.discord == nil {
-				return codex.ToolResponse{}, errors.New("discord is not connected")
-			}
-			var input struct {
-				SinceHours int `json:"since_hours"`
-			}
-			_ = json.Unmarshal(raw, &input)
-			if input.SinceHours <= 0 {
-				input.SinceHours = 168
-			}
-			channels, err := a.discord.ListChannels(ctx, a.cfg.Discord.GuildID)
-			if err != nil {
-				return codex.ToolResponse{}, err
-			}
-			profiles, err := a.store.ListChannelProfiles(ctx)
-			if err != nil {
-				return codex.ToolResponse{}, err
-			}
-			activity, err := a.store.ChannelActivitySince(ctx, time.Now().UTC().Add(-time.Duration(input.SinceHours)*time.Hour), 256)
-			if err != nil {
-				return codex.ToolResponse{}, err
-			}
-			return textTool(planSpaceRefresh(channels, profiles, activity, input.SinceHours)), nil
-		})
+		if a.discord == nil {
+			return codex.ToolResponse{}, errors.New("discord is not connected")
+		}
+		var input struct {
+			SinceHours int `json:"since_hours"`
+		}
+		_ = json.Unmarshal(raw, &input)
+		if input.SinceHours <= 0 {
+			input.SinceHours = 168
+		}
+		channels, err := a.discord.ListChannels(ctx, a.cfg.Discord.GuildID)
+		if err != nil {
+			return codex.ToolResponse{}, err
+		}
+		profiles, err := a.store.ListChannelProfiles(ctx)
+		if err != nil {
+			return codex.ToolResponse{}, err
+		}
+		activity, err := a.store.ChannelActivitySince(ctx, time.Now().UTC().Add(-time.Duration(input.SinceHours)*time.Hour), 256)
+		if err != nil {
+			return codex.ToolResponse{}, err
+		}
+		return textTool(planSpaceRefresh(channels, profiles, activity, input.SinceHours)), nil
+	})
+
+	registry.Register(codex.ToolSpec{
+		Name:        "discord.suggest_channel_profiles",
+		Description: "最近の活動量と channel 情報から、channel profile の候補を提案する",
+		InputSchema: objectSchema(fieldSchema("since_hours", "integer", "最近の活動を見る時間幅")),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+		if a.discord == nil {
+			return codex.ToolResponse{}, errors.New("discord is not connected")
+		}
+		var input struct {
+			SinceHours int `json:"since_hours"`
+		}
+		_ = json.Unmarshal(raw, &input)
+		if input.SinceHours <= 0 {
+			input.SinceHours = 168
+		}
+		channels, err := a.discord.ListChannels(ctx, a.cfg.Discord.GuildID)
+		if err != nil {
+			return codex.ToolResponse{}, err
+		}
+		profiles, err := a.store.ListChannelProfiles(ctx)
+		if err != nil {
+			return codex.ToolResponse{}, err
+		}
+		activity, err := a.store.ChannelActivitySince(ctx, time.Now().UTC().Add(-time.Duration(input.SinceHours)*time.Hour), 256)
+		if err != nil {
+			return codex.ToolResponse{}, err
+		}
+		return textTool(suggestChannelProfiles(channels, profiles, activity, input.SinceHours)), nil
+	})
 }
 
 func findStaleTextChannels(channels []discordsvc.Channel, activity []memory.ChannelActivity) []discordsvc.Channel {
@@ -351,6 +515,161 @@ func planSpaceRefresh(channels []discordsvc.Channel, profiles []memory.ChannelPr
 	}
 	if len(lonelyCategories) > 0 {
 		lines = append(lines, "- 空のカテゴリは育てるか畳むかを後で判断しやすい状態です。")
+	}
+	return strings.Join(lines, "\n")
+}
+
+func describeCategoryMap(channels []discordsvc.Channel) string {
+	categories := make(map[string]discordsvc.Channel)
+	children := make(map[string][]discordsvc.Channel)
+	rootText := make([]discordsvc.Channel, 0)
+	for _, channel := range channels {
+		if channel.Type == discordgo.ChannelTypeGuildCategory {
+			categories[channel.ID] = channel
+			continue
+		}
+		if channel.Type != discordgo.ChannelTypeGuildText {
+			continue
+		}
+		if strings.TrimSpace(channel.ParentID) == "" {
+			rootText = append(rootText, channel)
+			continue
+		}
+		children[channel.ParentID] = append(children[channel.ParentID], channel)
+	}
+
+	categoryIDs := make([]string, 0, len(categories))
+	for id := range categories {
+		categoryIDs = append(categoryIDs, id)
+	}
+	slices.Sort(categoryIDs)
+
+	lines := []string{"category map:"}
+	for _, id := range categoryIDs {
+		category := categories[id]
+		lines = append(lines, fmt.Sprintf("- %s (%s)", category.Name, category.ID))
+		items := children[id]
+		if len(items) == 0 {
+			lines = append(lines, "  - empty")
+			continue
+		}
+		slices.SortFunc(items, func(left discordsvc.Channel, right discordsvc.Channel) int {
+			return strings.Compare(left.Name, right.Name)
+		})
+		for _, item := range items {
+			lines = append(lines, fmt.Sprintf("  - %s (%s)", item.Name, item.ID))
+		}
+	}
+	if len(rootText) == 0 {
+		lines = append(lines, "root text channels: none")
+	} else {
+		slices.SortFunc(rootText, func(left discordsvc.Channel, right discordsvc.Channel) int {
+			return strings.Compare(left.Name, right.Name)
+		})
+		names := make([]string, 0, len(rootText))
+		for _, channel := range rootText {
+			names = append(names, fmt.Sprintf("%s (%s)", channel.Name, channel.ID))
+		}
+		lines = append(lines, "root text channels: "+strings.Join(names, ", "))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func describeOrphanChannels(channels []discordsvc.Channel) string {
+	categoryChildren := make(map[string]int)
+	categoryNames := make(map[string]string)
+	rootText := make([]string, 0)
+	for _, channel := range channels {
+		if channel.Type == discordgo.ChannelTypeGuildCategory {
+			categoryNames[channel.ID] = channel.Name
+			continue
+		}
+		if channel.Type != discordgo.ChannelTypeGuildText {
+			continue
+		}
+		if strings.TrimSpace(channel.ParentID) == "" {
+			rootText = append(rootText, fmt.Sprintf("%s (%s)", channel.Name, channel.ID))
+			continue
+		}
+		categoryChildren[channel.ParentID]++
+	}
+	emptyCategories := make([]string, 0)
+	for id, name := range categoryNames {
+		if categoryChildren[id] == 0 {
+			emptyCategories = append(emptyCategories, fmt.Sprintf("%s (%s)", name, id))
+		}
+	}
+	slices.Sort(rootText)
+	slices.Sort(emptyCategories)
+	lines := []string{}
+	if len(rootText) == 0 {
+		lines = append(lines, "root text channels: none")
+	} else {
+		lines = append(lines, "root text channels: "+strings.Join(rootText, ", "))
+	}
+	if len(emptyCategories) == 0 {
+		lines = append(lines, "empty categories: none")
+	} else {
+		lines = append(lines, "empty categories: "+strings.Join(emptyCategories, ", "))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func suggestChannelProfiles(channels []discordsvc.Channel, profiles []memory.ChannelProfile, activity []memory.ChannelActivity, sinceHours int) string {
+	profileByChannel := make(map[string]memory.ChannelProfile, len(profiles))
+	for _, profile := range profiles {
+		profileByChannel[profile.ChannelID] = profile
+	}
+	activityByChannel := make(map[string]memory.ChannelActivity, len(activity))
+	for _, item := range activity {
+		activityByChannel[item.ChannelID] = item
+	}
+
+	var lines []string
+	lines = append(lines, fmt.Sprintf("profile suggestions over last %dh:", sinceHours))
+	for _, channel := range channels {
+		if channel.Type != discordgo.ChannelTypeGuildText {
+			continue
+		}
+		if _, ok := profileByChannel[channel.ID]; ok {
+			continue
+		}
+		item, active := activityByChannel[channel.ID]
+		suggestion := "conversation"
+		replyAgg := 0.75
+		autonomy := 0.55
+		cadence := "daily"
+		reason := "default starting point"
+
+		switch {
+		case active && item.MessageCount >= 12 && channel.ParentID == "":
+			suggestion = "conversation"
+			replyAgg = 0.8
+			autonomy = 0.6
+			reason = "active and rooted in the main flow"
+		case active && item.MessageCount >= 6:
+			suggestion = "conversation"
+			replyAgg = 0.72
+			autonomy = 0.58
+			reason = "active enough to stay responsive"
+		case !active && strings.TrimSpace(channel.Topic) != "":
+			suggestion = "reference"
+			replyAgg = 0.2
+			autonomy = 0.35
+			cadence = "weekly"
+			reason = "quiet with an explicit topic, so reference/archive style may fit"
+		case !active:
+			suggestion = "monologue"
+			replyAgg = 0.2
+			autonomy = 0.75
+			cadence = "weekly"
+			reason = "quiet space without recent traffic"
+		}
+
+		lines = append(lines, fmt.Sprintf("- %s (%s): suggest kind=%s reply=%.2f autonomy=%.2f cadence=%s reason=%s", channel.Name, channel.ID, suggestion, replyAgg, autonomy, cadence, reason))
+	}
+	if len(lines) == 1 {
+		lines = append(lines, "no unprofiled text channels")
 	}
 	return strings.Join(lines, "\n")
 }

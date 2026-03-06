@@ -116,3 +116,33 @@ func TestHandleSpaceReviewJobSendsReport(t *testing.T) {
 		t.Fatalf("unexpected space review report: %s", discord.sentMessages[0].Content)
 	}
 }
+
+func TestReviewPromptBuilders(t *testing.T) {
+	decisionPrompt := buildDecisionReviewPrompt(
+		[]memory.Fact{{Kind: "decision", Key: "tone", Value: "少し短めにする"}},
+		[]memory.Message{{ChannelName: "general", Content: "最近は短く返してほしい", CreatedAt: time.Date(2026, 3, 7, 1, 0, 0, 0, time.UTC)}},
+	)
+	if !strings.Contains(decisionPrompt, "recent decisions") || !strings.Contains(decisionPrompt, "tone") {
+		t.Fatalf("unexpected decision prompt: %s", decisionPrompt)
+	}
+
+	improvementPrompt := buildSelfImprovementReviewPrompt(
+		[]memory.Fact{{Kind: "automation_candidate", Key: "space", Value: "空間整理を楽にしたい"}},
+		[]memory.Summary{{Content: "前置きだけで止まらないほうがよい"}},
+		[]memory.Summary{{Content: "tool call が安定してきた"}},
+	)
+	for _, want := range []string{"automation candidates", "space", "前置きだけで止まらない", "tool call が安定"} {
+		if !strings.Contains(improvementPrompt, want) {
+			t.Fatalf("expected %q in improvement prompt, got %s", want, improvementPrompt)
+		}
+	}
+
+	rolePrompt := buildChannelRoleReviewPrompt(
+		[]discordsvc.Channel{{ID: "cat1", Name: "lab", Type: discordgo.ChannelTypeGuildCategory}, {ID: "c1", Name: "general", ParentID: "cat1", Type: discordgo.ChannelTypeGuildText}},
+		[]memory.ChannelProfile{{ChannelID: "c1", Name: "general", Kind: "conversation", ReplyAggressiveness: 0.75, AutonomyLevel: 0.55, SummaryCadence: "daily"}},
+		[]memory.ChannelActivity{{ChannelID: "c1", ChannelName: "general", MessageCount: 8, LastMessageAt: time.Now().UTC()}},
+	)
+	if !strings.Contains(rolePrompt, "channel role") || !strings.Contains(rolePrompt, "server snapshot") {
+		t.Fatalf("unexpected role prompt: %s", rolePrompt)
+	}
+}

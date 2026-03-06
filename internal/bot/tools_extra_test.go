@@ -226,8 +226,20 @@ func TestMemoryRecallBriefingTool(t *testing.T) {
 	if err := store.UpsertFact(ctx, memory.Fact{Kind: "open_loop", Key: "autonomy", Value: "連続 tool call を自然に回したい"}); err != nil {
 		t.Fatalf("upsert open loop: %v", err)
 	}
+	if err := store.UpsertFact(ctx, memory.Fact{Kind: "routine", Key: "morning", Value: "朝は先に Discord を見る"}); err != nil {
+		t.Fatalf("upsert routine: %v", err)
+	}
+	if err := store.UpsertFact(ctx, memory.Fact{Kind: "pending_promise", Key: "space-review", Value: "空間整理の確認を返す"}); err != nil {
+		t.Fatalf("upsert pending promise: %v", err)
+	}
 	if err := store.UpsertFact(ctx, memory.Fact{Kind: "decision", Key: "tone", Value: "溺愛寄りにする"}); err != nil {
 		t.Fatalf("upsert decision: %v", err)
+	}
+	if err := store.UpsertFact(ctx, memory.Fact{Kind: "context_gap", Key: "sleep-schedule", Value: "就寝時間帯の確信がない"}); err != nil {
+		t.Fatalf("upsert context gap: %v", err)
+	}
+	if err := store.UpsertFact(ctx, memory.Fact{Kind: "misfire", Key: "promise-only", Value: "前置きだけ送って止まった"}); err != nil {
+		t.Fatalf("upsert misfire: %v", err)
 	}
 	if err := store.SaveSummary(ctx, memory.Summary{Period: "reflection", ChannelID: "c1", Content: "前置きだけで止まらないほうがよい", StartsAt: now, EndsAt: now}); err != nil {
 		t.Fatalf("save reflection: %v", err)
@@ -252,7 +264,7 @@ func TestMemoryRecallBriefingTool(t *testing.T) {
 		t.Fatalf("memory.recall_briefing: %v", err)
 	}
 	text := response.ContentItems[0].Text
-	for _, want := range []string{"owner_messages:", "open_loops:", "reflections:", "growth:", "decisions:", "autonomy", "溺愛寄り"} {
+	for _, want := range []string{"owner_messages:", "routines:", "open_loops:", "pending_promises:", "reflections:", "growth:", "decisions:", "context_gaps:", "misfires:", "autonomy", "溺愛寄り", "promise-only"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("expected %q in briefing, got %s", want, text)
 		}
@@ -504,5 +516,349 @@ func TestDiscordFindChannelsTool(t *testing.T) {
 	}
 	if !strings.Contains(response.ContentItems[0].Text, "links") {
 		t.Fatalf("unexpected response: %#v", response.ContentItems)
+	}
+}
+
+func TestAutomationCandidateAndReviewSchedulingTools(t *testing.T) {
+	store, err := memory.Open(filepath.Join(t.TempDir(), "yururi.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	registry := codex.NewToolRegistry()
+	app := &App{
+		cfg:    config.Config{Discord: config.DiscordConfig{OwnerUserID: "owner"}},
+		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		loc:    time.UTC,
+		store:  store,
+	}
+	app.registerAutonomyTools(registry)
+
+	if _, err := registry.Call(ctx, "memory.write_automation_candidate", mustJSONRaw(t, map[string]any{
+		"key":   "channel-curation",
+		"value": "空間整理の依頼が繰り返されるので補助を増やしたい",
+	})); err != nil {
+		t.Fatalf("write automation candidate: %v", err)
+	}
+
+	candidates, err := registry.Call(ctx, "memory.list_automation_candidates", mustJSONRaw(t, map[string]any{
+		"limit": 5,
+	}))
+	if err != nil {
+		t.Fatalf("list automation candidates: %v", err)
+	}
+	if !strings.Contains(candidates.ContentItems[0].Text, "channel-curation") {
+		t.Fatalf("unexpected candidate response: %#v", candidates.ContentItems)
+	}
+
+	if _, err := registry.Call(ctx, "jobs.schedule_review", mustJSONRaw(t, map[string]any{
+		"kind":       "channel_curation",
+		"channel_id": "c-review",
+		"schedule":   "48h",
+	})); err != nil {
+		t.Fatalf("schedule review: %v", err)
+	}
+
+	allJobs, err := store.DueJobs(ctx, time.Now().UTC().Add(365*24*time.Hour), 16)
+	if err != nil {
+		t.Fatalf("list jobs: %v", err)
+	}
+	var found bool
+	for _, job := range allJobs {
+		if job.Kind == "channel_curation" && job.ChannelID == "c-review" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected channel_curation job, got %#v", allJobs)
+	}
+}
+
+func TestDiscordStaleAndSpaceRefreshTools(t *testing.T) {
+	store, err := memory.Open(filepath.Join(t.TempDir(), "yururi.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	if err := store.SaveMessage(ctx, memory.Message{
+		ID:          "m1",
+		ChannelID:   "active-1",
+		ChannelName: "general",
+		AuthorID:    "owner",
+		AuthorName:  "shiyui",
+		Content:     "active",
+		CreatedAt:   now,
+	}); err != nil {
+		t.Fatalf("save message: %v", err)
+	}
+	if err := store.UpsertChannelProfile(ctx, memory.ChannelProfile{
+		ChannelID:           "quiet-1",
+		Name:                "quiet-room",
+		Kind:                "monologue",
+		ReplyAggressiveness: 0.2,
+		AutonomyLevel:       0.8,
+		SummaryCadence:      "weekly",
+	}); err != nil {
+		t.Fatalf("upsert profile: %v", err)
+	}
+
+	registry := codex.NewToolRegistry()
+	app := &App{
+		cfg: config.Config{
+			Discord: config.DiscordConfig{GuildID: "g1", OwnerUserID: "owner"},
+		},
+		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		loc:    time.UTC,
+		store:  store,
+		discord: &discordStub{channels: []discordsvc.Channel{
+			{ID: "cat1", Name: "lab", Type: discordgo.ChannelTypeGuildCategory},
+			{ID: "active-1", Name: "general", Type: discordgo.ChannelTypeGuildText},
+			{ID: "quiet-1", Name: "quiet-room", ParentID: "cat1", Type: discordgo.ChannelTypeGuildText},
+			{ID: "loose-1", Name: "loose-notes", Type: discordgo.ChannelTypeGuildText},
+			{ID: "empty-cat", Name: "archive", Type: discordgo.ChannelTypeGuildCategory},
+		}},
+	}
+	app.registerAutonomyTools(registry)
+
+	stale, err := registry.Call(ctx, "discord.find_stale_channels", mustJSONRaw(t, map[string]any{
+		"since_hours": 72,
+	}))
+	if err != nil {
+		t.Fatalf("find stale channels: %v", err)
+	}
+	if !strings.Contains(stale.ContentItems[0].Text, "quiet-room") || !strings.Contains(stale.ContentItems[0].Text, "loose-notes") {
+		t.Fatalf("unexpected stale channels: %#v", stale.ContentItems)
+	}
+
+	refresh, err := registry.Call(ctx, "discord.plan_space_refresh", mustJSONRaw(t, map[string]any{
+		"since_hours": 72,
+	}))
+	if err != nil {
+		t.Fatalf("plan space refresh: %v", err)
+	}
+	text := refresh.ContentItems[0].Text
+	for _, want := range []string{"root text channels", "stale channels", "unprofiled channels", "quiet-room", "loose-notes"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("expected %q in refresh output, got %s", want, text)
+		}
+	}
+}
+
+func TestRoutineAndPendingPromiseTools(t *testing.T) {
+	store, err := memory.Open(filepath.Join(t.TempDir(), "yururi.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	registry := codex.NewToolRegistry()
+	app := &App{
+		cfg:    config.Config{Discord: config.DiscordConfig{OwnerUserID: "owner"}},
+		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		loc:    time.UTC,
+		store:  store,
+	}
+	app.registerAutonomyTools(registry)
+
+	if _, err := registry.Call(ctx, "memory.write_routine", mustJSONRaw(t, map[string]any{
+		"key":   "morning-boot",
+		"value": "朝は Discord を開いてから作業に入ることが多い",
+	})); err != nil {
+		t.Fatalf("write routine: %v", err)
+	}
+	if _, err := registry.Call(ctx, "memory.write_pending_promise", mustJSONRaw(t, map[string]any{
+		"key":   "space-check",
+		"value": "空間整理の動作確認をあとで見直す",
+	})); err != nil {
+		t.Fatalf("write pending promise: %v", err)
+	}
+
+	routines, err := registry.Call(ctx, "memory.list_routines", mustJSONRaw(t, map[string]any{"limit": 5}))
+	if err != nil {
+		t.Fatalf("list routines: %v", err)
+	}
+	if !strings.Contains(routines.ContentItems[0].Text, "morning-boot") {
+		t.Fatalf("unexpected routines: %#v", routines.ContentItems)
+	}
+
+	promises, err := registry.Call(ctx, "memory.list_pending_promises", mustJSONRaw(t, map[string]any{"limit": 5}))
+	if err != nil {
+		t.Fatalf("list pending promises: %v", err)
+	}
+	if !strings.Contains(promises.ContentItems[0].Text, "space-check") {
+		t.Fatalf("unexpected promises: %#v", promises.ContentItems)
+	}
+
+	if _, err := registry.Call(ctx, "memory.close_pending_promise", mustJSONRaw(t, map[string]any{
+		"key":        "space-check",
+		"resolution": "確認済みで問題なし",
+	})); err != nil {
+		t.Fatalf("close pending promise: %v", err)
+	}
+	remaining, err := store.ListFacts(ctx, "pending_promise", 10)
+	if err != nil {
+		t.Fatalf("list remaining promises: %v", err)
+	}
+	if len(remaining) != 0 {
+		t.Fatalf("expected no remaining promises, got %#v", remaining)
+	}
+}
+
+func TestContextGapAndMisfireTools(t *testing.T) {
+	store, err := memory.Open(filepath.Join(t.TempDir(), "yururi.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	registry := codex.NewToolRegistry()
+	app := &App{
+		cfg:    config.Config{Discord: config.DiscordConfig{OwnerUserID: "owner"}},
+		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		loc:    time.UTC,
+		store:  store,
+	}
+	app.registerMemoryExtraTools(registry)
+
+	if _, err := registry.Call(ctx, "memory.write_context_gap", mustJSONRaw(t, map[string]any{
+		"key":   "work-mode",
+		"value": "いま作業中か雑談中かの確信が弱い",
+	})); err != nil {
+		t.Fatalf("write context gap: %v", err)
+	}
+	if _, err := registry.Call(ctx, "memory.write_misfire", mustJSONRaw(t, map[string]any{
+		"key":   "over-reply",
+		"value": "反応しなくていい独り言に返してしまった",
+	})); err != nil {
+		t.Fatalf("write misfire: %v", err)
+	}
+
+	gaps, err := registry.Call(ctx, "memory.list_context_gaps", mustJSONRaw(t, map[string]any{"limit": 5}))
+	if err != nil {
+		t.Fatalf("list context gaps: %v", err)
+	}
+	if !strings.Contains(gaps.ContentItems[0].Text, "work-mode") {
+		t.Fatalf("unexpected gaps: %#v", gaps.ContentItems)
+	}
+
+	misfires, err := registry.Call(ctx, "memory.list_misfires", mustJSONRaw(t, map[string]any{"limit": 5}))
+	if err != nil {
+		t.Fatalf("list misfires: %v", err)
+	}
+	if !strings.Contains(misfires.ContentItems[0].Text, "over-reply") {
+		t.Fatalf("unexpected misfires: %#v", misfires.ContentItems)
+	}
+}
+
+func TestExtendedReviewSchedulingAndSpaceInsightTools(t *testing.T) {
+	store, err := memory.Open(filepath.Join(t.TempDir(), "yururi.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	if err := store.SaveMessage(ctx, memory.Message{
+		ID:          "m1",
+		ChannelID:   "active-1",
+		ChannelName: "general",
+		AuthorID:    "owner",
+		AuthorName:  "shiyui",
+		Content:     "active",
+		CreatedAt:   now,
+	}); err != nil {
+		t.Fatalf("save message: %v", err)
+	}
+	if err := store.UpsertChannelProfile(ctx, memory.ChannelProfile{
+		ChannelID:           "profiled-1",
+		Name:                "profiled-room",
+		Kind:                "conversation",
+		ReplyAggressiveness: 0.75,
+		AutonomyLevel:       0.55,
+		SummaryCadence:      "daily",
+	}); err != nil {
+		t.Fatalf("upsert profile: %v", err)
+	}
+
+	registry := codex.NewToolRegistry()
+	app := &App{
+		cfg: config.Config{
+			Discord: config.DiscordConfig{GuildID: "g1", OwnerUserID: "owner"},
+		},
+		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		loc:    time.UTC,
+		store:  store,
+		discord: &discordStub{channels: []discordsvc.Channel{
+			{ID: "cat1", Name: "lab", Type: discordgo.ChannelTypeGuildCategory},
+			{ID: "active-1", Name: "general", Type: discordgo.ChannelTypeGuildText},
+			{ID: "unprofiled-1", Name: "notes", ParentID: "cat1", Type: discordgo.ChannelTypeGuildText},
+			{ID: "profiled-1", Name: "profiled-room", ParentID: "cat1", Type: discordgo.ChannelTypeGuildText},
+			{ID: "empty-cat", Name: "archive", Type: discordgo.ChannelTypeGuildCategory},
+		}},
+	}
+	app.registerAutonomyTools(registry)
+
+	for _, kind := range []string{"decision_review", "self_improvement_review", "channel_role_review"} {
+		if _, err := registry.Call(ctx, "jobs.schedule_review", mustJSONRaw(t, map[string]any{
+			"kind":       kind,
+			"channel_id": "c-review",
+		})); err != nil {
+			t.Fatalf("schedule %s: %v", kind, err)
+		}
+	}
+
+	allJobs, err := store.DueJobs(ctx, time.Now().UTC().Add(365*24*time.Hour), 16)
+	if err != nil {
+		t.Fatalf("list jobs: %v", err)
+	}
+	for _, kind := range []string{"decision_review", "self_improvement_review", "channel_role_review"} {
+		var found bool
+		for _, job := range allJobs {
+			if job.Kind == kind {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("expected %s job, got %#v", kind, allJobs)
+		}
+	}
+
+	categoryMap, err := registry.Call(ctx, "discord.describe_category_map", mustJSONRaw(t, map[string]any{}))
+	if err != nil {
+		t.Fatalf("describe category map: %v", err)
+	}
+	if !strings.Contains(categoryMap.ContentItems[0].Text, "lab") || !strings.Contains(categoryMap.ContentItems[0].Text, "notes") {
+		t.Fatalf("unexpected category map: %#v", categoryMap.ContentItems)
+	}
+
+	orphaned, err := registry.Call(ctx, "discord.find_orphan_channels", mustJSONRaw(t, map[string]any{}))
+	if err != nil {
+		t.Fatalf("find orphan channels: %v", err)
+	}
+	text := orphaned.ContentItems[0].Text
+	for _, want := range []string{"general", "archive"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("expected %q in orphan output, got %s", want, text)
+		}
+	}
+
+	suggestions, err := registry.Call(ctx, "discord.suggest_channel_profiles", mustJSONRaw(t, map[string]any{
+		"since_hours": 72,
+	}))
+	if err != nil {
+		t.Fatalf("suggest channel profiles: %v", err)
+	}
+	if !strings.Contains(suggestions.ContentItems[0].Text, "unprofiled-1") && !strings.Contains(suggestions.ContentItems[0].Text, "notes") {
+		t.Fatalf("unexpected profile suggestions: %#v", suggestions.ContentItems)
 	}
 }

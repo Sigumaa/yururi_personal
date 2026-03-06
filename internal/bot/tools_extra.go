@@ -444,7 +444,7 @@ func (a *App) registerMemoryExtraTools(registry *codex.ToolRegistry) {
 
 	registry.Register(codex.ToolSpec{
 		Name:        "memory.recall_briefing",
-		Description: "最近の owner 発話、open loop、reflection、growth、decision をまとめて引く",
+		Description: "最近の owner 発話、routine、open loop、promise、reflection、growth、decision、gap、misfire をまとめて引く",
 		InputSchema: objectSchema(fieldSchema("limit", "integer", "各セクションのおおよその件数")),
 	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
 		var input struct {
@@ -463,6 +463,14 @@ func (a *App) registerMemoryExtraTools(registry *codex.ToolRegistry) {
 		if err != nil {
 			return codex.ToolResponse{}, err
 		}
+		routines, err := a.store.ListFacts(ctx, "routine", input.Limit)
+		if err != nil {
+			return codex.ToolResponse{}, err
+		}
+		pendingPromises, err := a.store.ListFacts(ctx, "pending_promise", input.Limit)
+		if err != nil {
+			return codex.ToolResponse{}, err
+		}
 		reflections, err := a.store.RecentSummaries(ctx, "reflection", input.Limit)
 		if err != nil {
 			return codex.ToolResponse{}, err
@@ -472,6 +480,14 @@ func (a *App) registerMemoryExtraTools(registry *codex.ToolRegistry) {
 			return codex.ToolResponse{}, err
 		}
 		decisions, err := a.store.ListFacts(ctx, "decision", input.Limit)
+		if err != nil {
+			return codex.ToolResponse{}, err
+		}
+		contextGaps, err := a.store.ListFacts(ctx, "context_gap", input.Limit)
+		if err != nil {
+			return codex.ToolResponse{}, err
+		}
+		misfires, err := a.store.ListFacts(ctx, "misfire", input.Limit)
 		if err != nil {
 			return codex.ToolResponse{}, err
 		}
@@ -485,12 +501,30 @@ func (a *App) registerMemoryExtraTools(registry *codex.ToolRegistry) {
 			}
 		}
 
+		lines = append(lines, "routines:")
+		if len(routines) == 0 {
+			lines = append(lines, "- none")
+		} else {
+			for _, item := range routines {
+				lines = append(lines, fmt.Sprintf("- %s: %s", item.Key, truncateText(item.Value, 220)))
+			}
+		}
+
 		lines = append(lines, "open_loops:")
 		if len(openLoops) == 0 {
 			lines = append(lines, "- none")
 		} else {
 			for _, loop := range openLoops {
 				lines = append(lines, fmt.Sprintf("- %s: %s", loop.Key, truncateText(loop.Value, 220)))
+			}
+		}
+
+		lines = append(lines, "pending_promises:")
+		if len(pendingPromises) == 0 {
+			lines = append(lines, "- none")
+		} else {
+			for _, item := range pendingPromises {
+				lines = append(lines, fmt.Sprintf("- %s: %s", item.Key, truncateText(item.Value, 220)))
 			}
 		}
 
@@ -517,6 +551,24 @@ func (a *App) registerMemoryExtraTools(registry *codex.ToolRegistry) {
 			lines = append(lines, "- none")
 		} else {
 			for _, item := range decisions {
+				lines = append(lines, fmt.Sprintf("- %s: %s", item.Key, truncateText(item.Value, 220)))
+			}
+		}
+
+		lines = append(lines, "context_gaps:")
+		if len(contextGaps) == 0 {
+			lines = append(lines, "- none")
+		} else {
+			for _, item := range contextGaps {
+				lines = append(lines, fmt.Sprintf("- %s: %s", item.Key, truncateText(item.Value, 220)))
+			}
+		}
+
+		lines = append(lines, "misfires:")
+		if len(misfires) == 0 {
+			lines = append(lines, "- none")
+		} else {
+			for _, item := range misfires {
 				lines = append(lines, fmt.Sprintf("- %s: %s", item.Key, truncateText(item.Value, 220)))
 			}
 		}
@@ -653,6 +705,60 @@ func (a *App) registerMemoryExtraTools(registry *codex.ToolRegistry) {
 	})
 
 	registry.Register(codex.ToolSpec{
+		Name:        "memory.list_context_gaps",
+		Description: "判断に必要だったが足りていなかった情報のメモを一覧する",
+		InputSchema: objectSchema(fieldSchema("limit", "integer", "取得件数")),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+		var input struct {
+			Limit int `json:"limit"`
+		}
+		_ = json.Unmarshal(raw, &input)
+		items, err := a.store.ListFacts(ctx, "context_gap", input.Limit)
+		if err != nil {
+			return codex.ToolResponse{}, err
+		}
+		if len(items) == 0 {
+			return textTool("no context gaps"), nil
+		}
+		lines := make([]string, 0, len(items))
+		for _, item := range items {
+			lines = append(lines, fmt.Sprintf("- %s: %s", item.Key, item.Value))
+		}
+		return textTool(strings.Join(lines, "\n")), nil
+	})
+
+	registry.Register(codex.ToolSpec{
+		Name:        "memory.write_context_gap",
+		Description: "判断時に足りなかった情報を context gap として保存する",
+		InputSchema: objectSchema(
+			fieldSchema("key", "string", "gap の一意キー"),
+			fieldSchema("value", "string", "不足していた情報の説明"),
+			fieldSchema("source_message_id", "string", "元メッセージ ID"),
+		),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+		var input struct {
+			Key             string `json:"key"`
+			Value           string `json:"value"`
+			SourceMessageID string `json:"source_message_id"`
+		}
+		if err := json.Unmarshal(raw, &input); err != nil {
+			return codex.ToolResponse{}, err
+		}
+		if strings.TrimSpace(input.Key) == "" || strings.TrimSpace(input.Value) == "" {
+			return codex.ToolResponse{}, errors.New("key and value are required")
+		}
+		if err := a.store.UpsertFact(ctx, memory.Fact{
+			Kind:            "context_gap",
+			Key:             input.Key,
+			Value:           input.Value,
+			SourceMessageID: input.SourceMessageID,
+		}); err != nil {
+			return codex.ToolResponse{}, err
+		}
+		return textTool("saved"), nil
+	})
+
+	registry.Register(codex.ToolSpec{
 		Name:        "memory.write_growth_log",
 		Description: "成長ログを保存する",
 		InputSchema: objectSchema(
@@ -678,6 +784,60 @@ func (a *App) registerMemoryExtraTools(registry *codex.ToolRegistry) {
 			StartsAt:  now,
 			EndsAt:    now,
 			CreatedAt: now,
+		}); err != nil {
+			return codex.ToolResponse{}, err
+		}
+		return textTool("saved"), nil
+	})
+
+	registry.Register(codex.ToolSpec{
+		Name:        "memory.list_misfires",
+		Description: "会話や自律動作の空振りメモを一覧する",
+		InputSchema: objectSchema(fieldSchema("limit", "integer", "取得件数")),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+		var input struct {
+			Limit int `json:"limit"`
+		}
+		_ = json.Unmarshal(raw, &input)
+		items, err := a.store.ListFacts(ctx, "misfire", input.Limit)
+		if err != nil {
+			return codex.ToolResponse{}, err
+		}
+		if len(items) == 0 {
+			return textTool("no misfires"), nil
+		}
+		lines := make([]string, 0, len(items))
+		for _, item := range items {
+			lines = append(lines, fmt.Sprintf("- %s: %s", item.Key, item.Value))
+		}
+		return textTool(strings.Join(lines, "\n")), nil
+	})
+
+	registry.Register(codex.ToolSpec{
+		Name:        "memory.write_misfire",
+		Description: "返信しすぎ、黙りすぎ、前置きだけで止まった、などの空振りを保存する",
+		InputSchema: objectSchema(
+			fieldSchema("key", "string", "misfire の一意キー"),
+			fieldSchema("value", "string", "空振り内容"),
+			fieldSchema("source_message_id", "string", "元メッセージ ID"),
+		),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+		var input struct {
+			Key             string `json:"key"`
+			Value           string `json:"value"`
+			SourceMessageID string `json:"source_message_id"`
+		}
+		if err := json.Unmarshal(raw, &input); err != nil {
+			return codex.ToolResponse{}, err
+		}
+		if strings.TrimSpace(input.Key) == "" || strings.TrimSpace(input.Value) == "" {
+			return codex.ToolResponse{}, errors.New("key and value are required")
+		}
+		if err := a.store.UpsertFact(ctx, memory.Fact{
+			Kind:            "misfire",
+			Key:             input.Key,
+			Value:           input.Value,
+			SourceMessageID: input.SourceMessageID,
 		}); err != nil {
 			return codex.ToolResponse{}, err
 		}
@@ -1065,9 +1225,9 @@ func (a *App) registerDiscordExtraTools(registry *codex.ToolRegistry) {
 
 	registry.Register(codex.ToolSpec{
 		Name:        "discord.find_channels",
-		Description: "名前、親カテゴリ、種別でチャンネルを探す",
+		Description: "チャンネル名、topic、親カテゴリ、種別でチャンネルを探す",
 		InputSchema: objectSchema(
-			fieldSchema("query", "string", "チャンネル名の部分一致。省略可"),
+			fieldSchema("query", "string", "チャンネル名または topic の部分一致。省略可"),
 			fieldSchema("parent_channel_id", "string", "親カテゴリ ID。省略可"),
 			fieldSchema("kind", "string", "text または category。省略可"),
 			fieldSchema("limit", "integer", "返す件数"),
@@ -1094,11 +1254,14 @@ func (a *App) registerDiscordExtraTools(registry *codex.ToolRegistry) {
 		kind := strings.ToLower(strings.TrimSpace(input.Kind))
 		lines := make([]string, 0, input.Limit)
 		for _, channel := range channels {
-			if query != "" && !strings.Contains(strings.ToLower(channel.Name), query) {
-				continue
-			}
 			if strings.TrimSpace(input.ParentChannelID) != "" && channel.ParentID != input.ParentChannelID {
 				continue
+			}
+			if query != "" {
+				haystack := strings.ToLower(channel.Name + "\n" + channel.Topic)
+				if !strings.Contains(haystack, query) {
+					continue
+				}
 			}
 			switch kind {
 			case "text":
@@ -1107,54 +1270,6 @@ func (a *App) registerDiscordExtraTools(registry *codex.ToolRegistry) {
 				}
 			case "category":
 				if channel.Type != discordgo.ChannelTypeGuildCategory {
-					continue
-				}
-			}
-			lines = append(lines, "- "+formatChannel(channel))
-			if len(lines) >= input.Limit {
-				break
-			}
-		}
-		if len(lines) == 0 {
-			return textTool("no matching channels"), nil
-		}
-		return textTool(strings.Join(lines, "\n")), nil
-	})
-
-	registry.Register(codex.ToolSpec{
-		Name:        "discord.find_channels",
-		Description: "チャンネル名や topic、親カテゴリでチャンネルを絞り込む",
-		InputSchema: objectSchema(
-			fieldSchema("query", "string", "チャンネル名または topic に含まれる語"),
-			fieldSchema("parent_channel_id", "string", "親カテゴリ ID"),
-			fieldSchema("limit", "integer", "取得件数"),
-		),
-	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
-		if a.discord == nil {
-			return codex.ToolResponse{}, errors.New("discord is not connected")
-		}
-		var input struct {
-			Query           string `json:"query"`
-			ParentChannelID string `json:"parent_channel_id"`
-			Limit           int    `json:"limit"`
-		}
-		_ = json.Unmarshal(raw, &input)
-		if input.Limit <= 0 {
-			input.Limit = 12
-		}
-		query := strings.ToLower(strings.TrimSpace(input.Query))
-		channels, err := a.discord.ListChannels(ctx, a.cfg.Discord.GuildID)
-		if err != nil {
-			return codex.ToolResponse{}, err
-		}
-		lines := make([]string, 0, input.Limit)
-		for _, channel := range channels {
-			if strings.TrimSpace(input.ParentChannelID) != "" && channel.ParentID != input.ParentChannelID {
-				continue
-			}
-			if query != "" {
-				haystack := strings.ToLower(channel.Name + "\n" + channel.Topic)
-				if !strings.Contains(haystack, query) {
 					continue
 				}
 			}

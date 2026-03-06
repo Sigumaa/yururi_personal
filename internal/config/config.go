@@ -43,11 +43,10 @@ type CodexConfig struct {
 }
 
 type BehaviorConfig struct {
-	WakeSummaryThreshold  string   `toml:"wake_summary_threshold"`
-	JobPollInterval       string   `toml:"job_poll_interval"`
-	ReleaseWatchInterval  string   `toml:"release_watch_interval"`
-	AutonomyPulseInterval string   `toml:"autonomy_pulse_interval"`
-	MonologueChannelNames []string `toml:"monologue_channel_names"`
+	WakeSummaryThreshold  string `toml:"wake_summary_threshold"`
+	JobPollInterval       string `toml:"job_poll_interval"`
+	ReleaseWatchInterval  string `toml:"release_watch_interval"`
+	AutonomyPulseInterval string `toml:"autonomy_pulse_interval"`
 }
 
 type Paths struct {
@@ -134,7 +133,6 @@ func defaultConfig() Config {
 			JobPollInterval:       "30s",
 			ReleaseWatchInterval:  "6h",
 			AutonomyPulseInterval: "7m",
-			MonologueChannelNames: []string{"monologue", "独り言", "ひとりごと"},
 		},
 	}
 }

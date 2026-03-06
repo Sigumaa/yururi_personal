@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -99,7 +98,9 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	app.scheduler.Register("reminder", jobHandlerFunc(app.handleReminderJob))
 	app.scheduler.Register("space_review", jobHandlerFunc(app.handleSpaceReviewJob))
 	app.scheduler.Register("channel_curation", jobHandlerFunc(app.handleChannelCurationJob))
-	app.scheduler.Register("channel_curation", jobHandlerFunc(app.handleChannelCurationJob))
+	app.scheduler.Register("decision_review", jobHandlerFunc(app.handleDecisionReviewJob))
+	app.scheduler.Register("self_improvement_review", jobHandlerFunc(app.handleSelfImprovementReviewJob))
+	app.scheduler.Register("channel_role_review", jobHandlerFunc(app.handleChannelRoleReviewJob))
 
 	return app, nil
 }
@@ -497,13 +498,6 @@ func (a *App) resolveChannelProfile(ctx context.Context, channelID string, chann
 	replyAgg := 0.75
 	autonomy := 0.55
 	cadence := "daily"
-	lower := strings.ToLower(channelName)
-
-	if strings.Contains(lower, "monologue") || slices.Contains(a.cfg.Behavior.MonologueChannelNames, channelName) {
-		kind = "monologue"
-		replyAgg = 0.15
-		autonomy = 0.85
-	}
 
 	profile = memory.ChannelProfile{
 		ChannelID:           channelID,
