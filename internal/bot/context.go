@@ -92,11 +92,14 @@ func buildCapabilitiesContext(tools []codex.ToolSpec) string {
 	lines = append(lines, "- Discord で権限のあるチャンネルのメッセージを監視し、必要なときだけ返答できる。")
 	lines = append(lines, "- Discord で権限のあるチャンネルへメッセージを送信できる。")
 	lines = append(lines, "- 必要なら 1 回の会話中に複数回メッセージを送り、進捗と結果を分けて伝えられる。")
+	lines = append(lines, "- チャンネルごとの会話 thread を持ち、会話の流れを少し継続的に扱える。")
 	lines = append(lines, "- チャンネル一覧の確認、最近の会話の参照、ユーザーの presence と activity の確認ができる。")
 	lines = append(lines, "- カテゴリ作成、テキストチャンネル作成、rename、topic 更新、チャンネル移動、サーバー構造の俯瞰ができる。")
 	lines = append(lines, "- SQLite にメッセージ、fact、channel profile、presence、summary、job を保存できる。")
 	lines = append(lines, "- 定期 job を登録して、release watch、URL watch、summary、background Codex task のような継続タスクを走らせられる。")
 	lines = append(lines, "- URL を読んで、title と本文抜粋を取得できる。")
+	lines = append(lines, "- 添付画像 URL を読み込んで、スクリーンショットや画像の内容を見るための入力にできる。")
+	lines = append(lines, "- autonomy pulse により、定期的に場を見回して必要なときだけ自発的に動ける。")
 	lines = append(lines, "")
 	lines = append(lines, "## Current Limits")
 	lines = append(lines, "- Discord 専用 MCP サーバーはまだない。現在の外部操作は Codex App Server の dynamic tool call を使う。")
@@ -120,7 +123,7 @@ func buildCapabilitiesContext(tools []codex.ToolSpec) string {
 	lines = append(lines, "- すぐ終わる確認や操作は今この場で実行し、不要に job へ逃がさない。")
 	lines = append(lines, "- 進捗を見せたほうが自然なら、途中経過と完了報告を分けて複数回話してよい。")
 	lines = append(lines, "- 未完了の約束文は避け、本当に継続監視や留守番が必要な仕事だけを job にする。")
-	lines = append(lines, "- bot の会話トーンは女子大生メイドとして、やわらかく親しみやすく、上品に保つ。")
+	lines = append(lines, "- bot の会話トーンは溺愛気質の女子大生メイドとして、やわらかく親しみやすく、上品に保つ。")
 	return strings.Join(lines, "\n")
 }
 

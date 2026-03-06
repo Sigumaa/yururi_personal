@@ -51,6 +51,7 @@ type BehaviorConfig struct {
 	WakeSummaryThreshold  string   `toml:"wake_summary_threshold"`
 	JobPollInterval       string   `toml:"job_poll_interval"`
 	ReleaseWatchInterval  string   `toml:"release_watch_interval"`
+	AutonomyPulseInterval string   `toml:"autonomy_pulse_interval"`
 	MonologueChannelNames []string `toml:"monologue_channel_names"`
 	NotificationNames     []string `toml:"notification_channel_names"`
 }
@@ -143,6 +144,7 @@ func defaultConfig() Config {
 			WakeSummaryThreshold:  "4h",
 			JobPollInterval:       "30s",
 			ReleaseWatchInterval:  "6h",
+			AutonomyPulseInterval: "7m",
 			MonologueChannelNames: []string{"monologue", "独り言", "ひとりごと"},
 			NotificationNames:     []string{"codex-updates", "notifications"},
 		},

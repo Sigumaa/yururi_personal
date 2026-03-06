@@ -110,17 +110,23 @@ func (a *App) composeReplyFromExecution(ctx context.Context, msg memory.Message,
 }
 
 func (a *App) handleJobResult(job jobs.Job, result jobs.Result, runErr error) {
-	if a.thread.ID == "" || a.discord == nil || strings.TrimSpace(job.ChannelID) == "" {
-		a.logger.Debug("job observer skipped", "job_id", job.ID, "kind", job.Kind, "reason", "missing_main_thread_or_channel")
+	if a.discord == nil || strings.TrimSpace(job.ChannelID) == "" {
+		a.logger.Debug("job observer skipped", "job_id", job.ID, "kind", job.Kind, "reason", "missing_discord_or_channel")
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 
+	session, err := a.ensureChannelThread(ctx, job.ChannelID)
+	if err != nil {
+		a.logger.Warn("job follow-up thread unavailable", "job_id", job.ID, "kind", job.Kind, "error", err)
+		return
+	}
+
 	a.logger.Info("job observer fired", "job_id", job.ID, "kind", job.Kind, "done", result.Done, "already_notified", result.AlreadyNotified, "details_preview", previewText(result.Details, 320), "error", runErr)
 	prompt := buildJobFollowUpPrompt(job, result, runErr)
 	a.logger.Debug("job follow-up prompt", "job_id", job.ID, "kind", job.Kind, "prompt_preview", previewText(prompt, 1400))
-	raw, err := a.runThreadTurn(ctx, a.thread.ID, prompt)
+	raw, err := a.runThreadTurn(ctx, session.ID, prompt)
 	if err != nil {
 		a.logger.Warn("job follow-up turn failed", "job_id", job.ID, "kind", job.Kind, "error", err)
 		return
@@ -144,10 +150,6 @@ func (a *App) handleJobResult(job jobs.Job, result jobs.Result, runErr error) {
 }
 
 func (a *App) handleBackgroundCodexTaskJob(ctx context.Context, job jobs.Job) (jobs.Result, error) {
-	if a.thread.ID == "" {
-		return jobs.Result{Done: true}, fmt.Errorf("codex thread is unavailable")
-	}
-
 	prompt, _ := job.Payload["prompt"].(string)
 	if strings.TrimSpace(prompt) == "" {
 		return jobs.Result{Done: true}, fmt.Errorf("payload.prompt is required")

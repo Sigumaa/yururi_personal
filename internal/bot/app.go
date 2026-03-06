@@ -36,9 +36,11 @@ type App struct {
 	scheduler *jobs.Scheduler
 	http      *http.Client
 
-	threadMu    sync.Mutex
-	threadLocks map[string]*sync.Mutex
-	thread      codex.ThreadSession
+	sessionMu      sync.Mutex
+	channelThreads map[string]codex.ThreadSession
+	threadMu       sync.Mutex
+	threadLocks    map[string]*sync.Mutex
+	thread         codex.ThreadSession
 }
 
 func New(cfg config.Config, logger *slog.Logger) (*App, error) {
@@ -56,12 +58,13 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	}
 
 	app := &App{
-		cfg:         cfg,
-		paths:       paths,
-		logger:      logger,
-		loc:         loc,
-		store:       store,
-		threadLocks: map[string]*sync.Mutex{},
+		cfg:            cfg,
+		paths:          paths,
+		logger:         logger,
+		loc:            loc,
+		store:          store,
+		channelThreads: map[string]codex.ThreadSession{},
+		threadLocks:    map[string]*sync.Mutex{},
 		http: &http.Client{
 			Timeout: 10 * time.Second,
 		},
@@ -81,6 +84,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	app.scheduler.Register("weekly_review", jobHandlerFunc(app.handleWeeklyReviewJob))
 	app.scheduler.Register("growth_log", jobHandlerFunc(app.handleGrowthLogJob))
 	app.scheduler.Register("wake_summary", jobHandlerFunc(app.handleWakeSummaryJob))
+	app.scheduler.Register("autonomy_pulse", jobHandlerFunc(app.handleAutonomyPulseJob))
 
 	return app, nil
 }
@@ -152,6 +156,9 @@ func (a *App) Run(ctx context.Context) error {
 		return err
 	}
 	a.logger.Info("discord connected", "guild_id", a.cfg.Discord.GuildID, "self_user_id", a.discord.SelfUserID())
+	if err := a.ensureAutonomyPulseJob(context.Background()); err != nil {
+		a.logger.Warn("ensure autonomy pulse job failed", "error", err)
+	}
 
 	go func() {
 		err := a.scheduler.Run(ctx)
@@ -169,7 +176,7 @@ func (a *App) processMessage(session *discordgo.Session, event *discordgo.Messag
 	if event.Author == nil || event.Author.Bot {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 75*time.Second)
 	defer cancel()
 
 	channelName := a.channelName(session, event.ChannelID)
@@ -191,6 +198,11 @@ func (a *App) processMessage(session *discordgo.Session, event *discordgo.Messag
 		a.logger.Error("save message failed", "error", err)
 		return
 	}
+	if msg.AuthorID == a.cfg.Discord.OwnerUserID {
+		if err := a.store.SetKV(ctx, "autonomy.last_target_channel_id", msg.ChannelID); err != nil {
+			a.logger.Warn("save autonomy target channel failed", "channel_id", msg.ChannelID, "error", err)
+		}
+	}
 
 	profile, err := a.resolveChannelProfile(ctx, event.ChannelID, channelName)
 	if err != nil {
@@ -203,24 +215,15 @@ func (a *App) processMessage(session *discordgo.Session, event *discordgo.Messag
 	a.logger.Info("message context ready", "channel", channelName, "recent_messages", len(recent), "related_facts", len(facts), "profile_kind", profile.Kind)
 	a.logger.Debug("message context detail", "channel", channelName, "profile", previewJSON(profile, 320), "recent_preview", previewJSON(recent, 900), "fact_preview", previewJSON(facts, 900))
 
-	decisionValue, err := a.planDecision(ctx, msg, profile, recent, facts)
+	threadSession, err := a.ensureChannelThread(ctx, msg.ChannelID)
 	if err != nil {
-		a.logger.Error("plan failed", "error", err)
+		a.logger.Error("ensure channel thread failed", "channel", channelName, "channel_id", msg.ChannelID, "error", err)
 		return
 	}
-	a.logger.Info("decision ready", "channel", channelName, "action", decisionValue.Action, "reply_len", len(strings.TrimSpace(decisionValue.Message)), "reason", decisionValue.Reason, "confidence", decisionValue.Confidence, "message_preview", previewText(decisionValue.Message, 240))
-	a.logger.Debug("decision detail", "channel", channelName, "decision", previewJSON(decisionValue, 1600))
 
-	report, err := a.executeDecision(ctx, msg, decisionValue)
+	reply, err := a.runConversationTurn(ctx, threadSession.ID, msg, profile, recent, facts)
 	if err != nil {
-		a.logger.Error("execute decision failed", "error", err)
-		return
-	}
-	a.logger.Debug("execution report", "channel", channelName, "report", previewJSON(report, 1200))
-
-	reply, err := a.composeDecisionReply(ctx, msg, decisionValue, report)
-	if err != nil {
-		a.logger.Error("compose reply failed", "error", err)
+		a.logger.Error("conversation turn failed", "channel", channelName, "channel_id", msg.ChannelID, "error", err)
 		return
 	}
 	if strings.TrimSpace(reply) == "" {

@@ -20,6 +20,7 @@ func (a *App) registerExtraTools(registry *codex.ToolRegistry) {
 	a.registerJobExtraTools(registry)
 	a.registerDiscordExtraTools(registry)
 	a.registerWebTools(registry)
+	a.registerMediaTools(registry)
 }
 
 func (a *App) registerMemoryExtraTools(registry *codex.ToolRegistry) {
@@ -537,6 +538,52 @@ func (a *App) registerWebTools(registry *codex.ToolRegistry) {
 			fmt.Sprintf("text=%s", snapshot.Text),
 		}
 		return textTool(strings.Join(lines, "\n")), nil
+	})
+}
+
+func (a *App) registerMediaTools(registry *codex.ToolRegistry) {
+	registry.Register(codex.ToolSpec{
+		Name:        "media.load_attachments",
+		Description: "画像 URL 群を会話コンテキストへ読み込み、スクリーンショットや画像添付を見られるようにする",
+		InputSchema: map[string]any{
+			"type":                 "object",
+			"additionalProperties": false,
+			"properties": map[string]any{
+				"urls": map[string]any{
+					"type":        "array",
+					"description": "画像 URL の配列",
+					"items": map[string]any{
+						"type": "string",
+					},
+				},
+			},
+		},
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+		var input struct {
+			URLs []string `json:"urls"`
+		}
+		if err := json.Unmarshal(raw, &input); err != nil {
+			return codex.ToolResponse{}, err
+		}
+		items := []codex.ToolContentItem{}
+		lines := []string{}
+		for _, url := range input.URLs {
+			url = strings.TrimSpace(url)
+			if url == "" {
+				continue
+			}
+			lines = append(lines, "- "+url)
+			items = append(items, codex.ToolContentItem{Type: "imageUrl", ImageURL: url})
+		}
+		if len(items) == 0 {
+			return codex.ToolResponse{}, errors.New("urls are required")
+		}
+		prefix := codex.ToolContentItem{
+			Type: "inputText",
+			Text: "loaded attachments:\n" + strings.Join(lines, "\n"),
+		}
+		items = append([]codex.ToolContentItem{prefix}, items...)
+		return codex.ToolResponse{Success: true, ContentItems: items}, nil
 	})
 }
 

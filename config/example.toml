@@ -30,6 +30,6 @@ enable_skills = true
 wake_summary_threshold = "4h"
 job_poll_interval = "30s"
 release_watch_interval = "6h"
+autonomy_pulse_interval = "7m"
 monologue_channel_names = ["monologue", "独り言", "ひとりごと"]
 notification_channel_names = ["codex-updates", "notifications"]
-

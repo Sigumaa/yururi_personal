@@ -10,6 +10,66 @@ import (
 	"github.com/Sigumaa/yururi_personal/internal/jobs"
 )
 
+func (a *App) ensureAutonomyThread(ctx context.Context) (codex.ThreadSession, error) {
+	if a.thread.ID != "" {
+		return a.thread, nil
+	}
+
+	bundle, _, err := loadBotContext(a.paths.WorkspaceContextDir)
+	if err != nil {
+		return codex.ThreadSession{}, fmt.Errorf("load bot context: %w", err)
+	}
+
+	storedID, _, _ := a.store.GetKV(ctx, "codex.main_thread_id")
+	session, err := a.codex.EnsureThread(ctx, storedID, baseInstructions(), developerInstructions())
+	if err != nil {
+		return codex.ThreadSession{}, err
+	}
+	if err := a.primeThreadContext(ctx, session.ID, bundle); err != nil {
+		return codex.ThreadSession{}, fmt.Errorf("prime autonomy thread: %w", err)
+	}
+	a.thread = session
+	if err := a.store.SetKV(ctx, "codex.main_thread_id", session.ID); err != nil {
+		return codex.ThreadSession{}, err
+	}
+	a.logger.Info("autonomy thread ready", "thread_id", session.ID)
+	return session, nil
+}
+
+func (a *App) ensureChannelThread(ctx context.Context, channelID string) (codex.ThreadSession, error) {
+	a.sessionMu.Lock()
+	if session, ok := a.channelThreads[channelID]; ok && session.ID != "" {
+		a.sessionMu.Unlock()
+		a.logger.Debug("channel thread reused", "channel_id", channelID, "thread_id", session.ID)
+		return session, nil
+	}
+	a.sessionMu.Unlock()
+
+	bundle, _, err := loadBotContext(a.paths.WorkspaceContextDir)
+	if err != nil {
+		return codex.ThreadSession{}, fmt.Errorf("load bot context: %w", err)
+	}
+
+	key := "codex.channel_thread." + channelID
+	storedID, _, _ := a.store.GetKV(ctx, key)
+	session, err := a.codex.EnsureThread(ctx, storedID, baseInstructions(), developerInstructions())
+	if err != nil {
+		return codex.ThreadSession{}, err
+	}
+	if err := a.primeThreadContext(ctx, session.ID, bundle); err != nil {
+		return codex.ThreadSession{}, fmt.Errorf("prime channel thread: %w", err)
+	}
+	if err := a.store.SetKV(ctx, key, session.ID); err != nil {
+		return codex.ThreadSession{}, err
+	}
+
+	a.sessionMu.Lock()
+	a.channelThreads[channelID] = session
+	a.sessionMu.Unlock()
+	a.logger.Info("channel thread ready", "channel_id", channelID, "thread_id", session.ID)
+	return session, nil
+}
+
 func (a *App) threadLock(threadID string) *sync.Mutex {
 	a.threadMu.Lock()
 	defer a.threadMu.Unlock()
