@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"slices"
 	"sync"
+	"time"
 )
 
 type ToolHandler func(context.Context, json.RawMessage) (ToolResponse, error)
+type ToolHook func(context.Context, string, json.RawMessage, ToolResponse, error)
 
 type ToolSpec struct {
 	Name        string
@@ -28,9 +30,11 @@ type ToolContentItem struct {
 }
 
 type ToolRegistry struct {
-	mu       sync.RWMutex
-	handlers map[string]ToolHandler
-	specs    map[string]ToolSpec
+	mu         sync.RWMutex
+	handlers   map[string]ToolHandler
+	specs      map[string]ToolSpec
+	beforeHook ToolHook
+	afterHook  ToolHook
 }
 
 func NewToolRegistry() *ToolRegistry {
@@ -38,6 +42,32 @@ func NewToolRegistry() *ToolRegistry {
 		handlers: map[string]ToolHandler{},
 		specs:    map[string]ToolSpec{},
 	}
+}
+
+type ToolCallMeta struct {
+	ThreadID  string
+	TurnID    string
+	CallID    string
+	Tool      string
+	StartedAt time.Time
+}
+
+type toolCallMetaKey struct{}
+
+func WithToolCallMeta(ctx context.Context, meta ToolCallMeta) context.Context {
+	return context.WithValue(ctx, toolCallMetaKey{}, meta)
+}
+
+func ToolCallMetaFromContext(ctx context.Context) (ToolCallMeta, bool) {
+	meta, ok := ctx.Value(toolCallMetaKey{}).(ToolCallMeta)
+	return meta, ok
+}
+
+func (r *ToolRegistry) SetHooks(before ToolHook, after ToolHook) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.beforeHook = before
+	r.afterHook = after
 }
 
 func (r *ToolRegistry) Register(spec ToolSpec, handler ToolHandler) {
@@ -50,11 +80,20 @@ func (r *ToolRegistry) Register(spec ToolSpec, handler ToolHandler) {
 func (r *ToolRegistry) Call(ctx context.Context, name string, arguments json.RawMessage) (ToolResponse, error) {
 	r.mu.RLock()
 	handler := r.handlers[name]
+	beforeHook := r.beforeHook
+	afterHook := r.afterHook
 	r.mu.RUnlock()
 	if handler == nil {
 		return ToolResponse{}, fmt.Errorf("unsupported tool: %s", name)
 	}
-	return handler(ctx, arguments)
+	if beforeHook != nil {
+		beforeHook(ctx, name, arguments, ToolResponse{}, nil)
+	}
+	response, err := handler(ctx, arguments)
+	if afterHook != nil {
+		afterHook(ctx, name, arguments, response, err)
+	}
+	return response, err
 }
 
 func (r *ToolRegistry) Specs() []ToolSpec {

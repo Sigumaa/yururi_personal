@@ -406,6 +406,37 @@ func (a *App) registerJobExtraTools(registry *codex.ToolRegistry) {
 
 func (a *App) registerDiscordExtraTools(registry *codex.ToolRegistry) {
 	registry.Register(codex.ToolSpec{
+		Name:        "discord.self_permissions",
+		Description: "現在の bot 自身が指定チャンネルで持つ主要権限を確認する",
+		InputSchema: objectSchema(fieldSchema("channel_id", "string", "確認対象チャンネル ID")),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+		if a.discord == nil {
+			return codex.ToolResponse{}, errors.New("discord is not connected")
+		}
+		var input struct {
+			ChannelID string `json:"channel_id"`
+		}
+		if err := json.Unmarshal(raw, &input); err != nil {
+			return codex.ToolResponse{}, err
+		}
+		if strings.TrimSpace(input.ChannelID) == "" {
+			return codex.ToolResponse{}, errors.New("channel_id is required")
+		}
+		snapshot, err := a.discord.SelfChannelPermissions(ctx, input.ChannelID)
+		if err != nil {
+			return codex.ToolResponse{}, err
+		}
+		return textTool(fmt.Sprintf("user_id=%s channel_id=%s raw=%d view_channel=%t send_messages=%t manage_channels=%t",
+			snapshot.UserID,
+			snapshot.ChannelID,
+			snapshot.Raw,
+			snapshot.ViewChannel,
+			snapshot.SendMessages,
+			snapshot.ManageChannels,
+		)), nil
+	})
+
+	registry.Register(codex.ToolSpec{
 		Name:        "discord.get_channel",
 		Description: "単一チャンネルの詳細を取得する",
 		InputSchema: objectSchema(fieldSchema("channel_id", "string", "対象チャンネル ID")),
@@ -437,6 +468,9 @@ func (a *App) registerDiscordExtraTools(registry *codex.ToolRegistry) {
 		if a.discord == nil {
 			return codex.ToolResponse{}, errors.New("discord is not connected")
 		}
+		if err := a.requireVisibleProgress(ctx, "discord.rename_channel"); err != nil {
+			return codex.ToolResponse{}, err
+		}
 		var input struct {
 			ChannelID string `json:"channel_id"`
 			Name      string `json:"name"`
@@ -461,6 +495,9 @@ func (a *App) registerDiscordExtraTools(registry *codex.ToolRegistry) {
 	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
 		if a.discord == nil {
 			return codex.ToolResponse{}, errors.New("discord is not connected")
+		}
+		if err := a.requireVisibleProgress(ctx, "discord.set_channel_topic"); err != nil {
+			return codex.ToolResponse{}, err
 		}
 		var input struct {
 			ChannelID string `json:"channel_id"`

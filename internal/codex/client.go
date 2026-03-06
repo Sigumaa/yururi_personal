@@ -480,6 +480,9 @@ func (c *Client) handleServerRequest(rawID json.RawMessage, method string, param
 	switch method {
 	case "item/tool/call":
 		var request struct {
+			ThreadID  string          `json:"threadId"`
+			TurnID    string          `json:"turnId"`
+			CallID    string          `json:"callId"`
 			Tool      string          `json:"tool"`
 			Arguments json.RawMessage `json:"arguments"`
 		}
@@ -488,7 +491,14 @@ func (c *Client) handleServerRequest(rawID json.RawMessage, method string, param
 			return
 		}
 		c.logger.Info("codex tool call", "tool", request.Tool, "arguments", strings.TrimSpace(string(request.Arguments)))
-		response, err := c.tools.Call(context.Background(), request.Tool, request.Arguments)
+		callCtx := WithToolCallMeta(context.Background(), ToolCallMeta{
+			ThreadID:  request.ThreadID,
+			TurnID:    request.TurnID,
+			CallID:    request.CallID,
+			Tool:      request.Tool,
+			StartedAt: time.Now(),
+		})
+		response, err := c.tools.Call(callCtx, request.Tool, request.Arguments)
 		if err != nil {
 			c.logger.Warn("codex tool call failed", "tool", request.Tool, "error", err)
 			write(map[string]any{

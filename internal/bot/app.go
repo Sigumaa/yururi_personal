@@ -41,6 +41,11 @@ type App struct {
 	threadMu       sync.Mutex
 	threadLocks    map[string]*sync.Mutex
 	thread         codex.ThreadSession
+
+	threadMapMu        sync.Mutex
+	threadChannelsByID map[string]string
+	turnProgressMu     sync.Mutex
+	turnProgress       map[string]toolTurnProgress
 }
 
 func New(cfg config.Config, logger *slog.Logger) (*App, error) {
@@ -58,13 +63,15 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	}
 
 	app := &App{
-		cfg:            cfg,
-		paths:          paths,
-		logger:         logger,
-		loc:            loc,
-		store:          store,
-		channelThreads: map[string]codex.ThreadSession{},
-		threadLocks:    map[string]*sync.Mutex{},
+		cfg:                cfg,
+		paths:              paths,
+		logger:             logger,
+		loc:                loc,
+		store:              store,
+		channelThreads:     map[string]codex.ThreadSession{},
+		threadLocks:        map[string]*sync.Mutex{},
+		threadChannelsByID: map[string]string{},
+		turnProgress:       map[string]toolTurnProgress{},
 		http: &http.Client{
 			Timeout: 10 * time.Second,
 		},
@@ -72,6 +79,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 
 	tools := codex.NewToolRegistry()
 	app.registerTools(tools)
+	tools.SetHooks(app.beforeToolCall, app.afterToolCall)
 	app.tools = tools
 	app.codex = codex.NewClient(cfg, paths, logger, tools)
 	app.scheduler = jobs.NewScheduler(store, mustDuration(cfg.Behavior.JobPollInterval, 30*time.Second))
@@ -728,6 +736,9 @@ func (a *App) registerTools(registry *codex.ToolRegistry) {
 		if a.discord == nil {
 			return codex.ToolResponse{}, errors.New("discord is not connected")
 		}
+		if err := a.requireVisibleProgress(ctx, "discord.create_category"); err != nil {
+			return codex.ToolResponse{}, err
+		}
 		var input struct {
 			Name string `json:"name"`
 		}
@@ -751,6 +762,9 @@ func (a *App) registerTools(registry *codex.ToolRegistry) {
 	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
 		if a.discord == nil {
 			return codex.ToolResponse{}, errors.New("discord is not connected")
+		}
+		if err := a.requireVisibleProgress(ctx, "discord.create_channel"); err != nil {
+			return codex.ToolResponse{}, err
 		}
 		var input struct {
 			Name            string `json:"name"`
@@ -780,6 +794,9 @@ func (a *App) registerTools(registry *codex.ToolRegistry) {
 	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
 		if a.discord == nil {
 			return codex.ToolResponse{}, errors.New("discord is not connected")
+		}
+		if err := a.requireVisibleProgress(ctx, "discord.move_channel"); err != nil {
+			return codex.ToolResponse{}, err
 		}
 		var input struct {
 			TargetChannelID string `json:"target_channel_id"`

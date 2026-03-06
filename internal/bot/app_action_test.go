@@ -12,8 +12,14 @@ import (
 )
 
 type discordStub struct {
-	sentChannel string
-	sentContent string
+	sentChannel  string
+	sentContent  string
+	sentMessages []sentMessage
+}
+
+type sentMessage struct {
+	ChannelID string
+	Content   string
 }
 
 func (d *discordStub) Open() error                                                            { return nil }
@@ -23,6 +29,7 @@ func (d *discordStub) AddPresenceHandler(func(*discordgo.Session, *discordgo.Pre
 func (d *discordStub) SendMessage(_ context.Context, channelID string, content string) (string, error) {
 	d.sentChannel = channelID
 	d.sentContent = content
+	d.sentMessages = append(d.sentMessages, sentMessage{ChannelID: channelID, Content: content})
 	return "m-1", nil
 }
 func (d *discordStub) CreateTextChannel(context.Context, string, discordsvc.ChannelSpec) (discordsvc.Channel, error) {
@@ -52,6 +59,9 @@ func (d *discordStub) ListChannels(context.Context, string) ([]discordsvc.Channe
 }
 func (d *discordStub) CurrentPresence(context.Context, string, string) (discordsvc.Presence, error) {
 	return discordsvc.Presence{}, nil
+}
+func (d *discordStub) SelfChannelPermissions(context.Context, string) (discordsvc.PermissionSnapshot, error) {
+	return discordsvc.PermissionSnapshot{UserID: "bot", ChannelID: "c-1", ManageChannels: true, ViewChannel: true, SendMessages: true}, nil
 }
 func (d *discordStub) SelfUserID() string { return "" }
 

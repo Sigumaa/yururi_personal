@@ -2,6 +2,7 @@ package discord
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -26,6 +27,7 @@ type Service interface {
 	RecentMessages(context.Context, string, int) ([]Message, error)
 	ListChannels(context.Context, string) ([]Channel, error)
 	CurrentPresence(context.Context, string, string) (Presence, error)
+	SelfChannelPermissions(context.Context, string) (PermissionSnapshot, error)
 	SelfUserID() string
 }
 
@@ -64,6 +66,15 @@ type Presence struct {
 	Activities []string
 }
 
+type PermissionSnapshot struct {
+	UserID         string
+	ChannelID      string
+	Raw            int64
+	ViewChannel    bool
+	SendMessages   bool
+	ManageChannels bool
+}
+
 func New(token string) (*Client, error) {
 	session, err := discordgo.New("Bot " + token)
 	if err != nil {
@@ -98,7 +109,7 @@ func (c *Client) SendMessage(ctx context.Context, channelID string, content stri
 		Content: content,
 	})
 	if err != nil {
-		return "", fmt.Errorf("send message: %w", err)
+		return "", wrapDiscordError("send message", err)
 	}
 	return msg.ID, nil
 }
@@ -111,7 +122,7 @@ func (c *Client) CreateTextChannel(ctx context.Context, guildID string, spec Cha
 		ParentID: spec.ParentID,
 	})
 	if err != nil {
-		return Channel{}, fmt.Errorf("create text channel: %w", err)
+		return Channel{}, wrapDiscordError("create text channel", err)
 	}
 	return toChannel(channel), nil
 }
@@ -150,7 +161,7 @@ func (c *Client) EnsureCategory(ctx context.Context, guildID string, name string
 		Type: discordgo.ChannelTypeGuildCategory,
 	})
 	if err != nil {
-		return Channel{}, fmt.Errorf("create category: %w", err)
+		return Channel{}, wrapDiscordError("create category", err)
 	}
 	return toChannel(created), nil
 }
@@ -160,7 +171,7 @@ func (c *Client) MoveChannel(ctx context.Context, channelID string, parentID str
 		ParentID: parentID,
 	})
 	if err != nil {
-		return fmt.Errorf("move channel: %w", err)
+		return wrapDiscordError("move channel", err)
 	}
 	return nil
 }
@@ -168,7 +179,7 @@ func (c *Client) MoveChannel(ctx context.Context, channelID string, parentID str
 func (c *Client) GetChannel(ctx context.Context, channelID string) (Channel, error) {
 	channel, err := c.session.Channel(channelID)
 	if err != nil {
-		return Channel{}, fmt.Errorf("get channel: %w", err)
+		return Channel{}, wrapDiscordError("get channel", err)
 	}
 	return toChannel(channel), nil
 }
@@ -178,7 +189,7 @@ func (c *Client) RenameChannel(ctx context.Context, channelID string, name strin
 		Name: name,
 	})
 	if err != nil {
-		return Channel{}, fmt.Errorf("rename channel: %w", err)
+		return Channel{}, wrapDiscordError("rename channel", err)
 	}
 	return toChannel(channel), nil
 }
@@ -188,7 +199,7 @@ func (c *Client) SetChannelTopic(ctx context.Context, channelID string, topic st
 		Topic: topic,
 	})
 	if err != nil {
-		return Channel{}, fmt.Errorf("set channel topic: %w", err)
+		return Channel{}, wrapDiscordError("set channel topic", err)
 	}
 	return toChannel(channel), nil
 }
@@ -199,7 +210,7 @@ func (c *Client) RecentMessages(ctx context.Context, channelID string, limit int
 	}
 	msgs, err := c.session.ChannelMessages(channelID, limit, "", "", "")
 	if err != nil {
-		return nil, fmt.Errorf("fetch messages: %w", err)
+		return nil, wrapDiscordError("fetch messages", err)
 	}
 	channelName := ""
 	if channel, err := c.session.State.Channel(channelID); err == nil && channel != nil {
@@ -225,7 +236,7 @@ func (c *Client) RecentMessages(ctx context.Context, channelID string, limit int
 func (c *Client) ListChannels(ctx context.Context, guildID string) ([]Channel, error) {
 	channels, err := c.session.GuildChannels(guildID)
 	if err != nil {
-		return nil, fmt.Errorf("list channels: %w", err)
+		return nil, wrapDiscordError("list channels", err)
 	}
 	out := make([]Channel, 0, len(channels))
 	for _, channel := range channels {
@@ -239,7 +250,7 @@ func (c *Client) CurrentPresence(ctx context.Context, guildID string, userID str
 	if err != nil {
 		member, memberErr := c.session.GuildMember(guildID, userID)
 		if memberErr != nil {
-			return Presence{}, fmt.Errorf("presence lookup: %w", err)
+			return Presence{}, wrapDiscordError("presence lookup", err)
 		}
 		return Presence{
 			UserID: userID,
@@ -259,11 +270,52 @@ func (c *Client) CurrentPresence(ctx context.Context, guildID string, userID str
 	return out, nil
 }
 
+func (c *Client) SelfChannelPermissions(ctx context.Context, channelID string) (PermissionSnapshot, error) {
+	userID := c.SelfUserID()
+	if strings.TrimSpace(userID) == "" {
+		return PermissionSnapshot{}, fmt.Errorf("self user is unavailable")
+	}
+	raw, err := c.session.UserChannelPermissions(userID, channelID)
+	if err != nil {
+		return PermissionSnapshot{}, wrapDiscordError("self channel permissions", err)
+	}
+	return PermissionSnapshot{
+		UserID:         userID,
+		ChannelID:      channelID,
+		Raw:            raw,
+		ViewChannel:    raw&discordgo.PermissionViewChannel != 0,
+		SendMessages:   raw&discordgo.PermissionSendMessages != 0,
+		ManageChannels: raw&discordgo.PermissionManageChannels != 0,
+	}, nil
+}
+
 func (c *Client) SelfUserID() string {
 	if c.session.State != nil && c.session.State.User != nil {
 		return c.session.State.User.ID
 	}
 	return ""
+}
+
+func wrapDiscordError(operation string, err error) error {
+	var restErr *discordgo.RESTError
+	if errors.As(err, &restErr) {
+		if restErr.Message != nil {
+			return fmt.Errorf("%s: http=%s discord_code=%d discord_message=%s", operation, restErr.Response.Status, restErr.Message.Code, strings.TrimSpace(restErr.Message.Message))
+		}
+		body := strings.TrimSpace(string(restErr.ResponseBody))
+		if body != "" {
+			return fmt.Errorf("%s: http=%s body=%s", operation, restErr.Response.Status, truncateDiscordErrorBody(body, 240))
+		}
+		return fmt.Errorf("%s: http=%s", operation, restErr.Response.Status)
+	}
+	return fmt.Errorf("%s: %w", operation, err)
+}
+
+func truncateDiscordErrorBody(value string, maxChars int) string {
+	if maxChars <= 0 || len(value) <= maxChars {
+		return value
+	}
+	return strings.TrimSpace(value[:maxChars]) + "..."
 }
 
 func toChannel(channel *discordgo.Channel) Channel {
