@@ -56,7 +56,7 @@ func (a *App) handleReleaseWatchJob(ctx context.Context, job jobs.Job) (jobs.Res
 		return jobs.Result{NextRunAt: nextRun}, nil
 	}
 	if lastSeen != release.TagName {
-		message := fmt.Sprintf("Codex の安定リリースが更新されました。\n- tag: %s\n- name: %s\n- published: %s\n- url: %s",
+		message := fmt.Sprintf("Codex の安定リリースが更新されていましたよ。\nよかったら見てみてくださいね。\n- tag: %s\n- name: %s\n- published: %s\n- url: %s",
 			release.TagName, release.Name, release.PublishedAt.Format(time.RFC3339), release.HTMLURL)
 		if _, err := a.discord.SendMessage(ctx, job.ChannelID, message); err != nil {
 			return jobs.Result{NextRunAt: nextRun}, err
@@ -175,7 +175,7 @@ messages:
 }
 
 func fallbackSummary(period string, start time.Time, end time.Time, messages []memory.Message) string {
-	lines := []string{fmt.Sprintf("%s のまとめです。", period)}
+	lines := []string{fmt.Sprintf("%s のまとめをそっと置いておきますね。", period)}
 	seenChannels := map[string]int{}
 	for _, msg := range messages {
 		seenChannels[msg.ChannelName]++
@@ -185,8 +185,8 @@ func fallbackSummary(period string, start time.Time, end time.Time, messages []m
 		channels = append(channels, fmt.Sprintf("%s %d件", channel, count))
 	}
 	slices.Sort(channels)
-	lines = append(lines, fmt.Sprintf("期間は %s から %s まで。", start.Format("01/02 15:04"), end.Format("01/02 15:04")))
-	lines = append(lines, "動きがあった場所: "+strings.Join(channels, ", "))
+	lines = append(lines, fmt.Sprintf("期間は %s から %s までです。", start.Format("01/02 15:04"), end.Format("01/02 15:04")))
+	lines = append(lines, "動きがあった場所は "+strings.Join(channels, ", ")+" でした。")
 	for _, msg := range tailMessages(messages, 5) {
 		lines = append(lines, fmt.Sprintf("- [%s] %s", msg.ChannelName, msg.Content))
 	}

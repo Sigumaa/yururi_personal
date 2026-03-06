@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -43,5 +44,34 @@ func TestEnsureLayoutCreatesManagedFiles(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), "女子大生メイド") {
 		t.Fatalf("expected persona prompt to mention 女子大生メイド, got %s", string(raw))
+	}
+}
+
+func TestEnsureLayoutRemovesLegacyAnyDir(t *testing.T) {
+	root := t.TempDir()
+	legacyDir := filepath.Join(root, "workspace", "any")
+	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
+		t.Fatalf("mkdir legacy dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(legacyDir, "要望.md"), []byte("old"), 0o644); err != nil {
+		t.Fatalf("write legacy doc: %v", err)
+	}
+
+	cfg := config.Config{
+		Runtime: config.RuntimeConfig{
+			Root: root,
+		},
+		Codex: config.CodexConfig{
+			ApprovalPolicy: "never",
+			SandboxMode:    "danger-full-access",
+		},
+	}
+
+	paths, err := EnsureLayout(cfg)
+	if err != nil {
+		t.Fatalf("ensure layout: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(paths.Workspace, "any")); !os.IsNotExist(err) {
+		t.Fatalf("expected legacy any dir to be removed, got err=%v", err)
 	}
 }
