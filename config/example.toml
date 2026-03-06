@@ -1,0 +1,35 @@
+app_name = "yururi"
+timezone = "Asia/Tokyo"
+
+[discord]
+token = ""
+guild_id = ""
+owner_user_id = ""
+
+[runtime]
+root = "./runtime"
+ops_channel_name = "ops"
+notifications_channel_name = "codex-updates"
+daily_log_channel_name = "daily-log"
+growth_log_channel_name = "growth-log"
+category_name = "yururi"
+
+[codex]
+command = "codex"
+listen_host = "127.0.0.1"
+model = ""
+model_provider = ""
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
+reasoning_effort = "medium"
+reasoning_summary = "concise"
+enable_apps = true
+enable_skills = true
+
+[behavior]
+wake_summary_threshold = "4h"
+job_poll_interval = "30s"
+release_watch_interval = "6h"
+monologue_channel_names = ["monologue", "独り言", "ひとりごと"]
+notification_channel_names = ["codex-updates", "notifications"]
+

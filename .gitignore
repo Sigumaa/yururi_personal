@@ -1,0 +1,6 @@
+runtime/
+coverage.out
+*.log
+*.tmp
+*.db
+
