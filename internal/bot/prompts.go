@@ -174,6 +174,27 @@ job:
 	)
 }
 
+func buildBackgroundTaskPrompt(job jobs.Job, prompt string) string {
+	return fmt.Sprintf(`これはユーザーへ見せない内部用の background task 実行です。
+ここで必要なのは説明や着手宣言ではなく、実際の確認と実行です。
+
+ルール:
+- まず必要な tool を使って状況を確認し、事実ベースで進める
+- これからやる、あとで返す、確認する、といった未完了の約束文は禁止
+- tool を使わずに、できない・接続できない・確認できないと決めつけない
+- 接続不可や失敗を述べるときは、実際に失敗した tool 名とエラー内容をそのまま含める
+- サーバー俯瞰や機能確認なら、必要に応じて discord.describe_server, jobs.list, memory.list_channel_profiles, discord.read_recent_messages を使う
+- 返答は、作業後の完成した結果だけを書く
+
+job:
+- id: %s
+- title: %s
+- channel_id: %s
+
+task:
+%s`, job.ID, job.Title, job.ChannelID, strings.TrimSpace(prompt))
+}
+
 func renderMessageForPrompt(msg memory.Message) string {
 	lines := []string{msg.Content}
 	if attachments, ok := msg.Metadata["attachments"].([]string); ok && len(attachments) > 0 {

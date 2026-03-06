@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Sigumaa/yururi_personal/internal/jobs"
 	"github.com/Sigumaa/yururi_personal/internal/memory"
 )
 
@@ -34,5 +35,23 @@ func TestRenderMessageForPromptIncludesAttachments(t *testing.T) {
 	got := renderMessageForPrompt(msg)
 	if !strings.Contains(got, "attachments:") || !strings.Contains(got, "https://example.com/image.png") {
 		t.Fatalf("expected attachments in prompt rendering, got %s", got)
+	}
+}
+
+func TestBuildBackgroundTaskPromptForcesExecution(t *testing.T) {
+	prompt := buildBackgroundTaskPrompt(jobs.Job{
+		ID:        "job-1",
+		Title:     "tools quick check",
+		ChannelID: "channel-1",
+	}, "サーバー俯瞰と job 一覧を確認して短くまとめる")
+
+	if !strings.Contains(prompt, "tool を使わずに、できない・接続できない・確認できないと決めつけない") {
+		t.Fatalf("expected tool-first guard, got %s", prompt)
+	}
+	if !strings.Contains(prompt, "discord.describe_server") {
+		t.Fatalf("expected discord tool hint, got %s", prompt)
+	}
+	if !strings.Contains(prompt, "サーバー俯瞰と job 一覧を確認して短くまとめる") {
+		t.Fatalf("expected original task prompt, got %s", prompt)
 	}
 }

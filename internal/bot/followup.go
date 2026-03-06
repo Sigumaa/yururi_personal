@@ -145,8 +145,9 @@ func (a *App) handleBackgroundCodexTaskJob(ctx context.Context, job jobs.Job) (j
 		return jobs.Result{Done: true}, err
 	}
 
-	a.logger.Info("background codex task start", "job_id", job.ID, "title", job.Title, "thread_id", session.ID)
-	raw, err := a.runThreadTurn(ctx, session.ID, prompt)
+	taskPrompt := buildBackgroundTaskPrompt(job, prompt)
+	a.logger.Info("background codex task start", "job_id", job.ID, "title", job.Title, "thread_id", session.ID, "prompt_bytes", len(taskPrompt))
+	raw, err := a.runThreadTurn(ctx, session.ID, taskPrompt)
 	if err != nil {
 		return jobs.Result{Done: true}, err
 	}

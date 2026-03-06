@@ -44,9 +44,17 @@ func (a *App) ensureJobThread(ctx context.Context, job jobs.Job) (codex.ThreadSe
 		return codex.ThreadSession{ID: threadID}, nil
 	}
 
+	bundle, _, err := loadBotContext(a.paths.WorkspaceContextDir)
+	if err != nil {
+		return codex.ThreadSession{}, fmt.Errorf("load bot context: %w", err)
+	}
+
 	session, err := a.codex.EnsureThread(ctx, "", baseInstructions(), developerInstructions())
 	if err != nil {
 		return codex.ThreadSession{}, err
+	}
+	if err := a.primeThreadContext(ctx, session.ID, bundle); err != nil {
+		return codex.ThreadSession{}, fmt.Errorf("prime job thread: %w", err)
 	}
 	if job.Payload == nil {
 		job.Payload = map[string]any{}

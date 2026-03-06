@@ -48,6 +48,20 @@ func (a *App) primeBotContext(ctx context.Context) error {
 		return nil
 	}
 
+	if err := a.primeThreadContext(ctx, a.thread.ID, bundle); err != nil {
+		return fmt.Errorf("prime bot context: %w", err)
+	}
+	if err := a.store.SetKV(ctx, botContextHashKey, hash); err != nil {
+		return fmt.Errorf("persist bot context hash: %w", err)
+	}
+	return nil
+}
+
+func (a *App) primeThreadContext(ctx context.Context, threadID string, bundle string) error {
+	if threadID == "" || strings.TrimSpace(bundle) == "" {
+		return nil
+	}
+
 	prompt := fmt.Sprintf(`これはユーザーへ見せない内部向けの context refresh です。
 以下の資料は、現在の bot の実能力と振る舞い方針だけをまとめたものです。
 古い思い込みや未実装の能力より、この資料を優先してください。
@@ -57,13 +71,8 @@ func (a *App) primeBotContext(ctx context.Context) error {
 
 %s`, bundle)
 
-	if _, err := a.runThreadTurn(ctx, a.thread.ID, prompt); err != nil {
-		return fmt.Errorf("prime bot context: %w", err)
-	}
-	if err := a.store.SetKV(ctx, botContextHashKey, hash); err != nil {
-		return fmt.Errorf("persist bot context hash: %w", err)
-	}
-	return nil
+	_, err := a.runThreadTurn(ctx, threadID, prompt)
+	return err
 }
 
 func buildCapabilitiesContext(tools []codex.ToolSpec) string {
