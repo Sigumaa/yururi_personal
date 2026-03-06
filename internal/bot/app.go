@@ -184,7 +184,7 @@ func (a *App) processMessage(session *discordgo.Session, event *discordgo.Messag
 	if event.Author == nil || event.Author.Bot {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 75*time.Second)
+	ctx, cancel := conversationContext()
 	defer cancel()
 
 	channelName := a.channelName(session, event.ChannelID)
@@ -251,6 +251,10 @@ func (a *App) processMessage(session *discordgo.Session, event *discordgo.Messag
 		return
 	}
 	a.logger.Info("reply sent", "channel", msg.ChannelName, "channel_id", msg.ChannelID, "message_id", sentID)
+}
+
+func conversationContext() (context.Context, context.CancelFunc) {
+	return context.WithCancel(context.Background())
 }
 
 func (a *App) interruptChannelTurn(ctx context.Context, channelID string, threadID string, messageID string) error {
