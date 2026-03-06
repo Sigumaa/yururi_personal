@@ -53,7 +53,9 @@ func (r executionReport) Render() string {
 	return strings.Join(lines, "\n")
 }
 
-var promiseReplyRe = regexp.MustCompile(`(?:やります|進めます|見ておきます|確認します|調べます|対応します|待っていて|待ってて|できたら|終わったら|あとで|順に手をつけます)`)
+var promiseReplyRe = regexp.MustCompile(`(?:やります|進めます|見ておきます|確認します|調べます|対応します|待っていて|待ってて|できたら|終わったら|あとで|順に手をつけます|返します|共有します)`)
+var promiseFillerRe = regexp.MustCompile(`^(?:はい|了解です|承知しました|わかりました|もちろん|うん|では|それでは|いまから|今から|すぐ|大丈夫です|ありがとうございます|ごめんなさい|失礼しました|お待たせしました|この件は|その件は|まずは|ひとまず|いったん|一旦|ではまず)$`)
+var promiseContentRe = regexp.MustCompile(`(?:できました|完了|登録しました|作成しました|更新しました|移動しました|送信しました|確認できました|取得できました|見えています|見えました|わかっています|つまり|例えば|詳細|理由|結果|状態|いまは|現在|について|一覧|まとめ)`)
 
 func parseDecisionPlan(raw string) (decision.ReplyDecision, error) {
 	var planned decision.ReplyDecision
@@ -64,7 +66,45 @@ func parseDecisionPlan(raw string) (decision.ReplyDecision, error) {
 }
 
 func looksLikePromiseOnly(message string) bool {
-	return promiseReplyRe.MatchString(strings.TrimSpace(message))
+	trimmed := strings.TrimSpace(message)
+	if trimmed == "" {
+		return false
+	}
+	if promiseContentRe.MatchString(trimmed) {
+		return false
+	}
+	if strings.Contains(trimmed, "\n") || strings.Contains(trimmed, "- ") || strings.Contains(trimmed, "`") {
+		return false
+	}
+
+	segments := strings.FieldsFunc(trimmed, func(r rune) bool {
+		switch r {
+		case '。', '！', '!', '？', '?':
+			return true
+		default:
+			return false
+		}
+	})
+	if len(segments) == 0 {
+		segments = []string{trimmed}
+	}
+
+	hasPromise := false
+	for _, segment := range segments {
+		segment = strings.TrimSpace(segment)
+		if segment == "" {
+			continue
+		}
+		if promiseReplyRe.MatchString(segment) {
+			hasPromise = true
+			continue
+		}
+		if promiseFillerRe.MatchString(segment) {
+			continue
+		}
+		return false
+	}
+	return hasPromise
 }
 
 func (a *App) composeDecisionReply(ctx context.Context, msg memory.Message, planned decision.ReplyDecision, report executionReport) (string, error) {
