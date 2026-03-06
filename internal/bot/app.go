@@ -137,12 +137,12 @@ func (a *App) Run(ctx context.Context) error {
 		return err
 	}
 
-	threadID, _, _ := a.store.GetKV(ctx, "codex.main_thread_id")
+	threadID := a.storedThreadID(ctx, "codex.main_thread_id")
 	if session, err := a.codex.EnsureThread(ctx, threadID, baseInstructions(), developerInstructions()); err != nil {
 		a.logger.Warn("codex thread unavailable", "error", err)
 	} else {
 		a.thread = session
-		_ = a.store.SetKV(ctx, "codex.main_thread_id", session.ID)
+		_ = a.persistThreadBinding(ctx, "codex.main_thread_id", session.ID)
 		a.logger.Info("codex thread ready", "thread_id", session.ID)
 		if err := a.primeBotContext(ctx); err != nil {
 			a.logger.Warn("prime bot context failed", "error", err)

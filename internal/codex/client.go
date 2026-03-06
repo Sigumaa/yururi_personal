@@ -3,6 +3,7 @@ package codex
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -222,14 +223,7 @@ func (c *Client) EnsureThread(ctx context.Context, storedID string, baseInstruct
 			ID string `json:"id"`
 		} `json:"thread"`
 	}
-	params := map[string]any{
-		"cwd":                   c.paths.Workspace,
-		"approvalPolicy":        c.cfg.Codex.ApprovalPolicy,
-		"sandbox":               c.cfg.Codex.SandboxMode,
-		"baseInstructions":      baseInstructions,
-		"developerInstructions": developerInstructions,
-		"serviceName":           c.cfg.AppName,
-	}
+	params := c.threadStartParams(baseInstructions, developerInstructions)
 	if c.cfg.Codex.Model != "" {
 		params["model"] = c.cfg.Codex.Model
 	}
@@ -240,6 +234,53 @@ func (c *Client) EnsureThread(ctx context.Context, storedID string, baseInstruct
 		return ThreadSession{}, err
 	}
 	return ThreadSession{ID: response.Thread.ID}, nil
+}
+
+func (c *Client) DynamicToolSignature() string {
+	if c == nil || c.tools == nil {
+		return ""
+	}
+	specs := c.tools.Specs()
+	if len(specs) == 0 {
+		return ""
+	}
+	raw, err := json.Marshal(specs)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(raw)
+	return fmt.Sprintf("%x", sum)
+}
+
+func (c *Client) threadStartParams(baseInstructions string, developerInstructions string) map[string]any {
+	params := map[string]any{
+		"cwd":                   c.paths.Workspace,
+		"approvalPolicy":        c.cfg.Codex.ApprovalPolicy,
+		"sandbox":               c.cfg.Codex.SandboxMode,
+		"baseInstructions":      baseInstructions,
+		"developerInstructions": developerInstructions,
+		"serviceName":           c.cfg.AppName,
+	}
+	if dynamicTools := c.dynamicToolParams(); len(dynamicTools) > 0 {
+		params["dynamicTools"] = dynamicTools
+	}
+	return params
+}
+
+func (c *Client) dynamicToolParams() []map[string]any {
+	specs := c.tools.Specs()
+	if len(specs) == 0 {
+		return nil
+	}
+	out := make([]map[string]any, 0, len(specs))
+	for _, spec := range specs {
+		out = append(out, map[string]any{
+			"name":        spec.Name,
+			"description": spec.Description,
+			"inputSchema": spec.InputSchema,
+		})
+	}
+	return out
 }
 
 func (c *Client) ReadConfig(ctx context.Context) (map[string]any, error) {
@@ -579,6 +620,10 @@ func (c *Client) handleNotification(method string, params json.RawMessage) {
 		if err := json.Unmarshal(params, &event); err != nil {
 			return
 		}
+		if event.Item.Type == "dynamicToolCall" || event.Item.Type == "DynamicToolCall" {
+			c.logger.Info("turn item completed", "turn_id", event.TurnID, "item_type", event.Item.Type, "event_preview", previewText(string(params), 1200))
+			return
+		}
 		if event.Item.Type != "agentMessage" && event.Item.Type != "AgentMessage" {
 			return
 		}
@@ -588,6 +633,19 @@ func (c *Client) handleNotification(method string, params json.RawMessage) {
 		if waiter != nil && strings.TrimSpace(event.Item.Text) != "" {
 			waiter.texts = append(waiter.texts, strings.TrimSpace(event.Item.Text))
 			c.logger.Debug("turn item completed", "turn_id", event.TurnID, "item_type", event.Item.Type, "text_preview", previewText(event.Item.Text, 800))
+		}
+	case "item/started":
+		var event struct {
+			TurnID string `json:"turnId"`
+			Item   struct {
+				Type string `json:"type"`
+			} `json:"item"`
+		}
+		if err := json.Unmarshal(params, &event); err != nil {
+			return
+		}
+		if event.Item.Type == "dynamicToolCall" || event.Item.Type == "DynamicToolCall" {
+			c.logger.Info("turn item started", "turn_id", event.TurnID, "item_type", event.Item.Type, "event_preview", previewText(string(params), 1200))
 		}
 	case "turn/completed":
 		var event struct {

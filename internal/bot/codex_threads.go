@@ -10,6 +10,27 @@ import (
 	"github.com/Sigumaa/yururi_personal/internal/jobs"
 )
 
+func (a *App) storedThreadID(ctx context.Context, key string) string {
+	storedID, ok, err := a.store.GetKV(ctx, key)
+	if err != nil || !ok || storedID == "" {
+		return ""
+	}
+	storedSignature, ok, err := a.store.GetKV(ctx, key+".dynamic_tools_signature")
+	currentSignature := a.codex.DynamicToolSignature()
+	if err != nil || !ok || storedSignature != currentSignature {
+		a.logger.Info("stored thread invalidated", "key", key, "thread_id", storedID, "stored_signature", storedSignature, "current_signature", currentSignature)
+		return ""
+	}
+	return storedID
+}
+
+func (a *App) persistThreadBinding(ctx context.Context, key string, threadID string) error {
+	if err := a.store.SetKV(ctx, key, threadID); err != nil {
+		return err
+	}
+	return a.store.SetKV(ctx, key+".dynamic_tools_signature", a.codex.DynamicToolSignature())
+}
+
 func (a *App) ensureAutonomyThread(ctx context.Context) (codex.ThreadSession, error) {
 	if a.thread.ID != "" {
 		return a.thread, nil
@@ -20,7 +41,7 @@ func (a *App) ensureAutonomyThread(ctx context.Context) (codex.ThreadSession, er
 		return codex.ThreadSession{}, fmt.Errorf("load bot context: %w", err)
 	}
 
-	storedID, _, _ := a.store.GetKV(ctx, "codex.main_thread_id")
+	storedID := a.storedThreadID(ctx, "codex.main_thread_id")
 	session, err := a.codex.EnsureThread(ctx, storedID, baseInstructions(), developerInstructions())
 	if err != nil {
 		return codex.ThreadSession{}, err
@@ -29,7 +50,7 @@ func (a *App) ensureAutonomyThread(ctx context.Context) (codex.ThreadSession, er
 		return codex.ThreadSession{}, fmt.Errorf("prime autonomy thread: %w", err)
 	}
 	a.thread = session
-	if err := a.store.SetKV(ctx, "codex.main_thread_id", session.ID); err != nil {
+	if err := a.persistThreadBinding(ctx, "codex.main_thread_id", session.ID); err != nil {
 		return codex.ThreadSession{}, err
 	}
 	a.logger.Info("autonomy thread ready", "thread_id", session.ID)
@@ -52,7 +73,7 @@ func (a *App) ensureChannelThread(ctx context.Context, channelID string) (codex.
 	}
 
 	key := "codex.channel_thread." + channelID
-	storedID, _, _ := a.store.GetKV(ctx, key)
+	storedID := a.storedThreadID(ctx, key)
 	session, err := a.codex.EnsureThread(ctx, storedID, baseInstructions(), developerInstructions())
 	if err != nil {
 		return codex.ThreadSession{}, err
@@ -60,7 +81,7 @@ func (a *App) ensureChannelThread(ctx context.Context, channelID string) (codex.
 	if err := a.primeThreadContext(ctx, session.ID, bundle); err != nil {
 		return codex.ThreadSession{}, fmt.Errorf("prime channel thread: %w", err)
 	}
-	if err := a.store.SetKV(ctx, key, session.ID); err != nil {
+	if err := a.persistThreadBinding(ctx, key, session.ID); err != nil {
 		return codex.ThreadSession{}, err
 	}
 
@@ -116,8 +137,11 @@ func (a *App) runThreadJSONTurn(ctx context.Context, threadID string, prompt str
 
 func (a *App) ensureJobThread(ctx context.Context, job jobs.Job) (codex.ThreadSession, error) {
 	if threadID, _ := job.Payload["thread_id"].(string); threadID != "" {
-		a.logger.Debug("job thread reused", "job_id", job.ID, "thread_id", threadID)
-		return codex.ThreadSession{ID: threadID}, nil
+		if signature, _ := job.Payload["dynamic_tools_signature"].(string); signature == a.codex.DynamicToolSignature() {
+			a.logger.Debug("job thread reused", "job_id", job.ID, "thread_id", threadID)
+			return codex.ThreadSession{ID: threadID}, nil
+		}
+		a.logger.Info("job thread invalidated", "job_id", job.ID, "thread_id", threadID, "stored_signature", job.Payload["dynamic_tools_signature"], "current_signature", a.codex.DynamicToolSignature())
 	}
 
 	bundle, _, err := loadBotContext(a.paths.WorkspaceContextDir)
@@ -136,6 +160,7 @@ func (a *App) ensureJobThread(ctx context.Context, job jobs.Job) (codex.ThreadSe
 		job.Payload = map[string]any{}
 	}
 	job.Payload["thread_id"] = session.ID
+	job.Payload["dynamic_tools_signature"] = a.codex.DynamicToolSignature()
 	job.UpdatedAt = time.Now().UTC()
 	if err := a.store.UpsertJob(ctx, job); err != nil {
 		return codex.ThreadSession{}, fmt.Errorf("persist job thread: %w", err)
