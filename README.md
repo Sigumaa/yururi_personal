@@ -19,7 +19,11 @@ Discord 上で動くパーソナル AI Agent `ゆるり` の実装。
 ```bash
 go run ./cmd/yururi bootstrap
 go run ./cmd/yururi serve
+go run ./cmd/yururi reset
+go run ./cmd/yururi reset --full
 ```
+
+`reset` は runtime の DB、workspace、logs、Codex state を初期化する。`auth.json` は残す。`--full` は runtime 全体を作り直し、認証も消す。
 
 ## Runtime Layout
 

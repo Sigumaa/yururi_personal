@@ -1,4 +1,4 @@
-runtime/
+/runtime/
 coverage.out
 *.log
 *.tmp
