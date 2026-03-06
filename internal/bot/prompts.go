@@ -43,6 +43,8 @@ func buildConversationPrompt(msg memory.Message, profile memory.ChannelProfile, 
 	sendMessageTool := toolAlias("discord.send_message")
 	mediaTool := toolAlias("media.load_attachments")
 	permissionTool := toolAlias("discord.self_permissions")
+	searchToolsTool := toolAlias("tools.search")
+	describeToolTool := toolAlias("tools.describe")
 
 	var recentLines []string
 	for _, item := range recent {
@@ -75,6 +77,7 @@ func buildConversationPrompt(msg memory.Message, profile memory.ChannelProfile, 
 - 前置きだけ送って止まらず、やると決めたら同じ turn の中で実際の tool call まで進める
 - current message の画像添付はこの turn にすでに載っているので、そのまま見てよい
 - current message 以外の画像 URL や、過去ログ中のスクリーンショットを見たいなら %s を呼んでよい
+- 使える tool に迷ったら %s、引数が曖昧なら %s を使ってから進めてよい
 - 空間整理、記憶整理、presence 確認、URL 読取、channel profile 調整は今やってよい
 - 最近の会話、open loop、反省メモ、成長ログ、判断履歴を見たり書いたりしてよい
 - channel 作成や更新に失敗したら、できるふりで止まらず、%s で今の権限状態も確認する
@@ -113,6 +116,8 @@ related facts:
 		noReplyToken,
 		sendMessageTool,
 		mediaTool,
+		searchToolsTool,
+		describeToolTool,
 		permissionTool,
 		profile.Name,
 		profile.Kind,
@@ -131,7 +136,7 @@ related facts:
 	)
 }
 
-func buildAutonomyPulsePrompt(targetChannelID string, targetChannelName string, latestPresence memory.PresenceSnapshot, recentActivity []memory.ChannelActivity, summaries []memory.Summary) string {
+func buildAutonomyPulsePrompt(targetChannelID string, targetChannelName string, latestPresence memory.PresenceSnapshot, recentActivity []memory.ChannelActivity, summaries []memory.Summary, ownerMessages []memory.Message, openLoops []memory.Fact, reflections []memory.Summary, growth []memory.Summary, decisions []memory.Fact) string {
 	sendMessageTool := toolAlias("discord.send_message")
 
 	activityLines := make([]string, 0, len(recentActivity))
@@ -148,6 +153,46 @@ func buildAutonomyPulsePrompt(targetChannelID string, targetChannelName string, 
 	}
 	if len(summaryLines) == 0 {
 		summaryLines = append(summaryLines, "- none")
+	}
+
+	ownerLines := make([]string, 0, len(ownerMessages))
+	for _, msg := range ownerMessages {
+		ownerLines = append(ownerLines, fmt.Sprintf("- [%s/%s] %s", msg.ChannelName, msg.CreatedAt.In(time.Local).Format("01-02 15:04"), truncateText(msg.Content, 140)))
+	}
+	if len(ownerLines) == 0 {
+		ownerLines = append(ownerLines, "- none")
+	}
+
+	openLoopLines := make([]string, 0, len(openLoops))
+	for _, loop := range openLoops {
+		openLoopLines = append(openLoopLines, fmt.Sprintf("- %s: %s", loop.Key, truncateText(loop.Value, 140)))
+	}
+	if len(openLoopLines) == 0 {
+		openLoopLines = append(openLoopLines, "- none")
+	}
+
+	reflectionLines := make([]string, 0, len(reflections))
+	for _, item := range reflections {
+		reflectionLines = append(reflectionLines, fmt.Sprintf("- %s", truncateText(item.Content, 160)))
+	}
+	if len(reflectionLines) == 0 {
+		reflectionLines = append(reflectionLines, "- none")
+	}
+
+	growthLines := make([]string, 0, len(growth))
+	for _, item := range growth {
+		growthLines = append(growthLines, fmt.Sprintf("- %s", truncateText(item.Content, 160)))
+	}
+	if len(growthLines) == 0 {
+		growthLines = append(growthLines, "- none")
+	}
+
+	decisionLines := make([]string, 0, len(decisions))
+	for _, item := range decisions {
+		decisionLines = append(decisionLines, fmt.Sprintf("- %s: %s", item.Key, truncateText(item.Value, 140)))
+	}
+	if len(decisionLines) == 0 {
+		decisionLines = append(decisionLines, "- none")
 	}
 
 	return fmt.Sprintf(`これは自律観察の autonomy pulse です。
@@ -177,6 +222,21 @@ recent channel activity:
 %s
 
 recent summaries:
+%s
+
+recent owner messages:
+%s
+
+open loops:
+%s
+
+recent reflections:
+%s
+
+recent growth:
+%s
+
+recent decisions:
 %s`,
 		noReplyToken,
 		sendMessageTool,
@@ -188,11 +248,18 @@ recent summaries:
 		latestPresence.StartedAt.Format(time.RFC3339),
 		strings.Join(activityLines, "\n"),
 		strings.Join(summaryLines, "\n"),
+		strings.Join(ownerLines, "\n"),
+		strings.Join(openLoopLines, "\n"),
+		strings.Join(reflectionLines, "\n"),
+		strings.Join(growthLines, "\n"),
+		strings.Join(decisionLines, "\n"),
 	)
 }
 
 func buildPlannerPrompt(msg memory.Message, profile memory.ChannelProfile, recent []memory.Message, facts []memory.Fact, tools []codex.ToolSpec, mention string) string {
 	sendMessageTool := toolAlias("discord.send_message")
+	searchToolsTool := toolAlias("tools.search")
+	describeToolTool := toolAlias("tools.describe")
 
 	var recentLines []string
 	for _, item := range recent {
@@ -217,6 +284,7 @@ func buildPlannerPrompt(msg memory.Message, profile memory.ChannelProfile, recen
 - 返答文は message に入れる
 - 返答しないなら action=ignore にし、message は空でよい
 - planner 中に必要な tool を使ってよい
+- 使える tool に迷ったら %s、引数を確認したければ %s を使ってよい
 - その場で終わる確認、俯瞰、読取り、軽い編集は、job にせず今この turn で完了させる
 - 進み具合を見せたほうが自然なときは、planner 中に %s を使って会話の途中で複数回話してよい
 - 小さな write や整理は、前置きなしでそのまま tool を使ってよい
@@ -261,6 +329,8 @@ recent messages:
 
 related facts:
 %s`,
+		searchToolsTool,
+		describeToolTool,
 		sendMessageTool,
 		profile.Name,
 		profile.Kind,

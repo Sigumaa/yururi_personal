@@ -26,12 +26,7 @@ type DiscordConfig struct {
 }
 
 type RuntimeConfig struct {
-	Root                     string `toml:"root"`
-	OpsChannelName           string `toml:"ops_channel_name"`
-	NotificationsChannelName string `toml:"notifications_channel_name"`
-	DailyLogChannelName      string `toml:"daily_log_channel_name"`
-	GrowthLogChannelName     string `toml:"growth_log_channel_name"`
-	CategoryName             string `toml:"category_name"`
+	Root string `toml:"root"`
 }
 
 type CodexConfig struct {
@@ -53,7 +48,6 @@ type BehaviorConfig struct {
 	ReleaseWatchInterval  string   `toml:"release_watch_interval"`
 	AutonomyPulseInterval string   `toml:"autonomy_pulse_interval"`
 	MonologueChannelNames []string `toml:"monologue_channel_names"`
-	NotificationNames     []string `toml:"notification_channel_names"`
 }
 
 type Paths struct {
@@ -123,12 +117,7 @@ func defaultConfig() Config {
 		AppName:  "yururi",
 		Timezone: "Asia/Tokyo",
 		Runtime: RuntimeConfig{
-			Root:                     "./runtime",
-			OpsChannelName:           "ops",
-			NotificationsChannelName: "codex-updates",
-			DailyLogChannelName:      "daily-log",
-			GrowthLogChannelName:     "growth-log",
-			CategoryName:             "yururi",
+			Root: "./runtime",
 		},
 		Codex: CodexConfig{
 			Command:          "codex",
@@ -146,7 +135,6 @@ func defaultConfig() Config {
 			ReleaseWatchInterval:  "6h",
 			AutonomyPulseInterval: "7m",
 			MonologueChannelNames: []string{"monologue", "独り言", "ひとりごと"},
-			NotificationNames:     []string{"codex-updates", "notifications"},
 		},
 	}
 }

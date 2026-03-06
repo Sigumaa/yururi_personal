@@ -203,3 +203,29 @@ func (a *App) handleBackgroundCodexTaskJob(ctx context.Context, job jobs.Job) (j
 		Details:   strings.TrimSpace(raw),
 	}, nil
 }
+
+func (a *App) handlePeriodicCodexTaskJob(ctx context.Context, job jobs.Job) (jobs.Result, error) {
+	prompt, _ := job.Payload["prompt"].(string)
+	if strings.TrimSpace(prompt) == "" {
+		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, time.Hour))}, fmt.Errorf("payload.prompt is required")
+	}
+
+	session, err := a.ensureJobThread(ctx, job)
+	if err != nil {
+		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, time.Hour))}, err
+	}
+
+	taskPrompt := buildBackgroundTaskPrompt(job, prompt)
+	a.logger.Info("periodic codex task start", "job_id", job.ID, "title", job.Title, "thread_id", session.ID, "prompt_bytes", len(taskPrompt))
+	raw, err := a.runThreadTurn(ctx, session.ID, taskPrompt)
+	nextRunAt := time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 6*time.Hour))
+	if err != nil {
+		return jobs.Result{NextRunAt: nextRunAt}, err
+	}
+	a.logger.Info("periodic codex task completed", "job_id", job.ID, "thread_id", session.ID, "response_bytes", len(raw))
+	a.logger.Debug("periodic codex task output", "job_id", job.ID, "thread_id", session.ID, "response_preview", previewText(raw, 1600))
+	return jobs.Result{
+		NextRunAt: nextRunAt,
+		Details:   strings.TrimSpace(raw),
+	}, nil
+}

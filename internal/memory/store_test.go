@@ -264,3 +264,30 @@ func TestListChannelProfiles(t *testing.T) {
 		t.Fatalf("unexpected profiles: %#v", profiles)
 	}
 }
+
+func TestListJobsSupportsFiltering(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "yururi.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	jobA := jobs.NewJob("job-a", "monthly_review", "monthly", "c1", "24h", nil)
+	jobB := jobs.NewJob("job-b", "reminder", "reminder", "c2", "1h", map[string]any{"content": "hello"})
+	jobB.State = jobs.StateFailed
+	if err := store.UpsertJob(ctx, jobA); err != nil {
+		t.Fatalf("upsert jobA: %v", err)
+	}
+	if err := store.UpsertJob(ctx, jobB); err != nil {
+		t.Fatalf("upsert jobB: %v", err)
+	}
+
+	filtered, err := store.ListJobs(ctx, "reminder", jobs.StateFailed, "c2", 10)
+	if err != nil {
+		t.Fatalf("list jobs: %v", err)
+	}
+	if len(filtered) != 1 || filtered[0].ID != "job-b" {
+		t.Fatalf("unexpected filtered jobs: %#v", filtered)
+	}
+}

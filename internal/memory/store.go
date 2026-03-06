@@ -758,6 +758,49 @@ func (s *Store) GetJob(ctx context.Context, id string) (jobs.Job, bool, error) {
 	return job, true, nil
 }
 
+func (s *Store) ListJobs(ctx context.Context, kind string, state jobs.State, channelID string, limit int) ([]jobs.Job, error) {
+	if limit <= 0 {
+		limit = 32
+	}
+
+	query := `
+		SELECT id, kind, title, state, channel_id, schedule_expr, payload_json, next_run_at, last_run_at, last_error, created_at, updated_at
+		FROM jobs
+		WHERE 1 = 1
+	`
+	args := []any{}
+	if strings.TrimSpace(kind) != "" {
+		query += ` AND kind = ?`
+		args = append(args, kind)
+	}
+	if strings.TrimSpace(string(state)) != "" {
+		query += ` AND state = ?`
+		args = append(args, string(state))
+	}
+	if strings.TrimSpace(channelID) != "" {
+		query += ` AND channel_id = ?`
+		args = append(args, channelID)
+	}
+	query += ` ORDER BY next_run_at ASC, created_at DESC LIMIT ?`
+	args = append(args, limit)
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list jobs: %w", err)
+	}
+	defer rows.Close()
+
+	var out []jobs.Job
+	for rows.Next() {
+		job, err := scanJob(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, job)
+	}
+	return out, rows.Err()
+}
+
 func scanMessage(rows *sql.Rows) (Message, error) {
 	var (
 		msg     Message

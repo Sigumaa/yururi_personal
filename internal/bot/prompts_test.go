@@ -130,6 +130,9 @@ func TestConversationPromptAllowsDirectToolsAndMultiReplies(t *testing.T) {
 	if !strings.Contains(prompt, "media__load_attachments") {
 		t.Fatalf("expected attachment tool hint, got %s", prompt)
 	}
+	if !strings.Contains(prompt, "tools__search") || !strings.Contains(prompt, "tools__describe") {
+		t.Fatalf("expected tool discovery hints, got %s", prompt)
+	}
 	if !strings.Contains(prompt, "current message の画像添付はこの turn にすでに載っている") {
 		t.Fatalf("expected direct image input guidance, got %s", prompt)
 	}
@@ -142,6 +145,11 @@ func TestAutonomyPulsePromptAllowsSilenceAndAction(t *testing.T) {
 		memory.PresenceSnapshot{Status: "online", Activities: []string{"Factorio"}},
 		[]memory.ChannelActivity{{ChannelID: "c-1", ChannelName: "general", MessageCount: 12}},
 		nil,
+		[]memory.Message{{ChannelName: "general", Content: "open loop を拾ってほしい"}},
+		[]memory.Fact{{Key: "agent-flow", Value: "会話しながら tool を回したい"}},
+		[]memory.Summary{{Content: "昨日は途中で止まりがちだった"}},
+		[]memory.Summary{{Content: "batch tool を増やした"}},
+		[]memory.Fact{{Key: "autonomy-mode", Value: "前置きだけで止まらない"}},
 	)
 
 	if !strings.Contains(prompt, noReplyToken) {
@@ -155,5 +163,14 @@ func TestAutonomyPulsePromptAllowsSilenceAndAction(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "best target channel") {
 		t.Fatalf("expected target channel guidance, got %s", prompt)
+	}
+	if !strings.Contains(prompt, "open loops") || !strings.Contains(prompt, "agent-flow") {
+		t.Fatalf("expected open loop context, got %s", prompt)
+	}
+	if !strings.Contains(prompt, "recent owner messages") {
+		t.Fatalf("expected owner message context, got %s", prompt)
+	}
+	if !strings.Contains(prompt, "recent growth") || !strings.Contains(prompt, "recent decisions") {
+		t.Fatalf("expected growth and decision context, got %s", prompt)
 	}
 }

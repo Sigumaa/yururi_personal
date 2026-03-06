@@ -15,6 +15,7 @@ type discordStub struct {
 	sentChannel  string
 	sentContent  string
 	sentMessages []sentMessage
+	channels     []discordsvc.Channel
 }
 
 type sentMessage struct {
@@ -43,6 +44,9 @@ func (d *discordStub) EnsureCategory(context.Context, string, string) (discordsv
 }
 func (d *discordStub) MoveChannel(context.Context, string, string) error { return nil }
 func (d *discordStub) GetChannel(context.Context, string) (discordsvc.Channel, error) {
+	if len(d.channels) > 0 {
+		return d.channels[0], nil
+	}
 	return discordsvc.Channel{}, nil
 }
 func (d *discordStub) RenameChannel(context.Context, string, string) (discordsvc.Channel, error) {
@@ -55,7 +59,7 @@ func (d *discordStub) RecentMessages(context.Context, string, int) ([]discordsvc
 	return nil, nil
 }
 func (d *discordStub) ListChannels(context.Context, string) ([]discordsvc.Channel, error) {
-	return nil, nil
+	return d.channels, nil
 }
 func (d *discordStub) CurrentPresence(context.Context, string, string) (discordsvc.Presence, error) {
 	return discordsvc.Presence{}, nil

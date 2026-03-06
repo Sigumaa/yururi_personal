@@ -98,6 +98,55 @@ func (a *App) handleGrowthLogJob(ctx context.Context, job jobs.Job) (jobs.Result
 	return a.runSummaryJob(ctx, job, "growth", start, end, nextRun, false)
 }
 
+func (a *App) handleSpaceReviewJob(ctx context.Context, job jobs.Job) (jobs.Result, error) {
+	if a.discord == nil {
+		return jobs.Result{Done: true}, fmt.Errorf("discord is not connected")
+	}
+	if strings.TrimSpace(job.ChannelID) == "" {
+		return jobs.Result{Done: true}, fmt.Errorf("space review channel is required")
+	}
+
+	sinceHours := 168
+	if raw, ok := job.Payload["since_hours"]; ok {
+		switch value := raw.(type) {
+		case float64:
+			if value > 0 {
+				sinceHours = int(value)
+			}
+		case int:
+			if value > 0 {
+				sinceHours = value
+			}
+		}
+	}
+
+	channels, err := a.discord.ListChannels(ctx, a.cfg.Discord.GuildID)
+	if err != nil {
+		return jobs.Result{Done: false}, err
+	}
+	profiles, err := a.store.ListChannelProfiles(ctx)
+	if err != nil {
+		return jobs.Result{Done: false}, err
+	}
+	activity, err := a.store.ChannelActivitySince(ctx, time.Now().UTC().Add(-time.Duration(sinceHours)*time.Hour), 256)
+	if err != nil {
+		return jobs.Result{Done: false}, err
+	}
+
+	report := "空間整理の候補を見てきましたよ。\n" + describeSpaceCandidates(channels, profiles, activity, a.loc)
+	if _, err := a.discord.SendMessage(ctx, job.ChannelID, report); err != nil {
+		return jobs.Result{Done: false}, err
+	}
+
+	nextRun := time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 24*time.Hour))
+	return jobs.Result{
+		NextRunAt:       nextRun,
+		Done:            false,
+		Details:         "space review sent",
+		AlreadyNotified: true,
+	}, nil
+}
+
 func (a *App) handleWakeSummaryJob(ctx context.Context, job jobs.Job) (jobs.Result, error) {
 	sinceRaw, _ := job.Payload["since"].(string)
 	since, err := time.Parse(time.RFC3339Nano, sinceRaw)
@@ -171,7 +220,7 @@ func (a *App) summarizeMessages(ctx context.Context, threadID string, period str
 	prompt := fmt.Sprintf(`%s のまとめを作成してください。
 期間: %s - %s
 出力は JSON だけにし、summary に完成文を入れてください。
-daily と wake は短め、weekly と growth は少し俯瞰を入れてください。
+daily と wake は短め、weekly と monthly と growth は少し俯瞰を入れてください。
 文章は日本語で、ゆるりとしてやわらかく。
 
 messages:

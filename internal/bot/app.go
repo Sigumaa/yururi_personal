@@ -87,12 +87,19 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	app.scheduler.SetObserver(app.handleJobResult)
 	app.scheduler.Register("codex_release_watch", jobHandlerFunc(app.handleReleaseWatchJob))
 	app.scheduler.Register("codex_background_task", jobHandlerFunc(app.handleBackgroundCodexTaskJob))
+	app.scheduler.Register("codex_periodic_task", jobHandlerFunc(app.handlePeriodicCodexTaskJob))
 	app.scheduler.Register("url_watch", jobHandlerFunc(app.handleURLWatchJob))
 	app.scheduler.Register("daily_summary", jobHandlerFunc(app.handleDailySummaryJob))
 	app.scheduler.Register("weekly_review", jobHandlerFunc(app.handleWeeklyReviewJob))
+	app.scheduler.Register("monthly_review", jobHandlerFunc(app.handleMonthlyReviewJob))
 	app.scheduler.Register("growth_log", jobHandlerFunc(app.handleGrowthLogJob))
+	app.scheduler.Register("open_loop_review", jobHandlerFunc(app.handleOpenLoopReviewJob))
 	app.scheduler.Register("wake_summary", jobHandlerFunc(app.handleWakeSummaryJob))
 	app.scheduler.Register("autonomy_pulse", jobHandlerFunc(app.handleAutonomyPulseJob))
+	app.scheduler.Register("reminder", jobHandlerFunc(app.handleReminderJob))
+	app.scheduler.Register("space_review", jobHandlerFunc(app.handleSpaceReviewJob))
+	app.scheduler.Register("channel_curation", jobHandlerFunc(app.handleChannelCurationJob))
+	app.scheduler.Register("channel_curation", jobHandlerFunc(app.handleChannelCurationJob))
 
 	return app, nil
 }
@@ -515,6 +522,82 @@ func (a *App) resolveChannelProfile(ctx context.Context, channelID string, chann
 
 func (a *App) registerTools(registry *codex.ToolRegistry) {
 	registry.Register(codex.ToolSpec{
+		Name:        "tools.list",
+		Description: "使える tool を一覧する",
+		InputSchema: objectSchema(),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+		specs := registry.Specs()
+		if len(specs) == 0 {
+			return textTool("no tools"), nil
+		}
+		lines := make([]string, 0, len(specs))
+		for _, spec := range specs {
+			lines = append(lines, fmt.Sprintf("- %s: %s", toolAlias(spec.Name), spec.Description))
+		}
+		return textTool(strings.Join(lines, "\n")), nil
+	})
+	registry.Register(codex.ToolSpec{
+		Name:        "tools.search",
+		Description: "query に合う tool を探す",
+		InputSchema: objectSchema(
+			fieldSchema("query", "string", "探したい機能や操作の語"),
+			fieldSchema("limit", "integer", "返す件数"),
+		),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+		var input struct {
+			Query string `json:"query"`
+			Limit int    `json:"limit"`
+		}
+		_ = json.Unmarshal(raw, &input)
+		query := strings.ToLower(strings.TrimSpace(input.Query))
+		if query == "" {
+			return codex.ToolResponse{}, errors.New("query is required")
+		}
+		if input.Limit <= 0 {
+			input.Limit = 8
+		}
+		var lines []string
+		for _, spec := range registry.Specs() {
+			name := strings.ToLower(toolAlias(spec.Name))
+			desc := strings.ToLower(spec.Description)
+			if strings.Contains(name, query) || strings.Contains(desc, query) {
+				lines = append(lines, fmt.Sprintf("- %s: %s", toolAlias(spec.Name), spec.Description))
+			}
+			if len(lines) >= input.Limit {
+				break
+			}
+		}
+		if len(lines) == 0 {
+			return textTool("no matching tools"), nil
+		}
+		return textTool(strings.Join(lines, "\n")), nil
+	})
+	registry.Register(codex.ToolSpec{
+		Name:        "tools.describe",
+		Description: "特定 tool の説明と引数を確認する",
+		InputSchema: objectSchema(
+			fieldSchema("name", "string", "tool 名。external 名でも internal 名でもよい"),
+		),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+		var input struct {
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal(raw, &input); err != nil {
+			return codex.ToolResponse{}, err
+		}
+		name := strings.TrimSpace(input.Name)
+		if name == "" {
+			return codex.ToolResponse{}, errors.New("name is required")
+		}
+		for _, spec := range registry.Specs() {
+			if name == spec.Name || name == toolAlias(spec.Name) {
+				args := renderToolArguments(spec.InputSchema)
+				return textTool(fmt.Sprintf("name=%s\ninternal_name=%s\ndescription=%s\nargs=%s", toolAlias(spec.Name), spec.Name, spec.Description, args)), nil
+			}
+		}
+		return textTool("tool not found"), nil
+	})
+	registry.Register(codex.ToolSpec{
 		Name:        "memory.search",
 		Description: "保存済みメッセージと fact から関連情報を検索する",
 		InputSchema: objectSchema(
@@ -583,22 +666,30 @@ func (a *App) registerTools(registry *codex.ToolRegistry) {
 	registry.Register(codex.ToolSpec{
 		Name:        "jobs.list",
 		Description: "登録済み job の一覧を確認する",
-		InputSchema: objectSchema(fieldSchema("limit", "integer", "取得件数")),
+		InputSchema: objectSchema(
+			fieldSchema("kind", "string", "job kind で絞る"),
+			fieldSchema("state", "string", "pending, running, failed, completed で絞る"),
+			fieldSchema("channel_id", "string", "チャンネル ID で絞る"),
+			fieldSchema("limit", "integer", "取得件数"),
+		),
 	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
 		var input struct {
-			Limit int `json:"limit"`
+			Kind      string `json:"kind"`
+			State     string `json:"state"`
+			ChannelID string `json:"channel_id"`
+			Limit     int    `json:"limit"`
 		}
 		_ = json.Unmarshal(raw, &input)
 		if input.Limit <= 0 {
 			input.Limit = 32
 		}
-		due, err := a.store.DueJobs(ctx, time.Now().UTC().Add(365*24*time.Hour), input.Limit)
+		list, err := a.store.ListJobs(ctx, input.Kind, jobs.State(strings.TrimSpace(input.State)), input.ChannelID, input.Limit)
 		if err != nil {
 			return codex.ToolResponse{}, err
 		}
-		lines := make([]string, 0, len(due))
-		for _, job := range due {
-			lines = append(lines, fmt.Sprintf("- %s %s next=%s", job.Kind, job.ID, job.NextRunAt.Format(time.RFC3339)))
+		lines := make([]string, 0, len(list))
+		for _, job := range list {
+			lines = append(lines, fmt.Sprintf("- %s %s state=%s channel=%s next=%s", job.Kind, job.ID, job.State, job.ChannelID, job.NextRunAt.Format(time.RFC3339)))
 		}
 		if len(lines) == 0 {
 			lines = append(lines, "no jobs")
@@ -941,6 +1032,14 @@ func nextWeekdayClock(now time.Time, loc *time.Location, weekday time.Weekday, h
 		offset = 7
 	}
 	target := time.Date(now.Year(), now.Month(), now.Day()+offset, hour, minute, 0, 0, loc)
+	return target.UTC()
+}
+
+func nextMonthClock(now time.Time, loc *time.Location, day int, hour int, minute int) time.Time {
+	target := time.Date(now.Year(), now.Month(), day, hour, minute, 0, 0, loc)
+	if !target.After(now) {
+		target = time.Date(now.Year(), now.Month()+1, day, hour, minute, 0, 0, loc)
+	}
 	return target.UTC()
 }
 

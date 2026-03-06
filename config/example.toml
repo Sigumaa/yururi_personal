@@ -8,11 +8,6 @@ owner_user_id = ""
 
 [runtime]
 root = "./runtime"
-ops_channel_name = "ops"
-notifications_channel_name = "codex-updates"
-daily_log_channel_name = "daily-log"
-growth_log_channel_name = "growth-log"
-category_name = "yururi"
 
 [codex]
 command = "codex"
@@ -32,4 +27,3 @@ job_poll_interval = "30s"
 release_watch_interval = "6h"
 autonomy_pulse_interval = "7m"
 monologue_channel_names = ["monologue", "独り言", "ひとりごと"]
-notification_channel_names = ["codex-updates", "notifications"]
