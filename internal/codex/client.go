@@ -90,6 +90,8 @@ type turnResult struct {
 	Error error
 }
 
+var ErrTurnInterrupted = errors.New("turn interrupted")
+
 func NewClient(cfg config.Config, paths config.Paths, logger *slog.Logger, tools *ToolRegistry) *Client {
 	if tools == nil {
 		tools = NewToolRegistry()
@@ -336,6 +338,43 @@ func (c *Client) RunJSONTurn(ctx context.Context, threadID string, prompt string
 	return c.runTurn(ctx, threadID, []InputItem{TextInput(prompt)}, outputSchema)
 }
 
+func (c *Client) InterruptTurn(ctx context.Context, threadID string, turnID string) error {
+	if strings.TrimSpace(threadID) == "" || strings.TrimSpace(turnID) == "" {
+		return errors.New("thread_id and turn_id are required")
+	}
+	c.logger.Info("turn interrupt requested", "thread_id", threadID, "turn_id", turnID)
+	if err := c.call(ctx, "turn/interrupt", map[string]any{
+		"threadId": threadID,
+		"turnId":   turnID,
+	}, nil); err != nil {
+		return err
+	}
+	c.logger.Info("turn interrupt sent", "thread_id", threadID, "turn_id", turnID)
+	return nil
+}
+
+func (c *Client) InterruptActiveTurn(ctx context.Context, threadID string) (string, bool, error) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+
+	var active *turnWaiter
+	for _, waiter := range c.turns {
+		if waiter == nil || waiter.threadID != threadID {
+			continue
+		}
+		if active == nil || waiter.receivedAt.After(active.receivedAt) {
+			active = waiter
+		}
+	}
+	if active == nil {
+		return "", false, nil
+	}
+	if err := c.interruptTurnLocked(ctx, threadID, active.turnID); err != nil {
+		return active.turnID, true, err
+	}
+	return active.turnID, true, nil
+}
+
 func (c *Client) runTurn(ctx context.Context, threadID string, input []InputItem, outputSchema map[string]any) (string, error) {
 	if err := c.Start(ctx); err != nil {
 		return "", err
@@ -390,6 +429,15 @@ func (c *Client) runTurn(ctx context.Context, threadID string, input []InputItem
 
 	select {
 	case <-ctx.Done():
+		interruptCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := c.InterruptTurn(interruptCtx, threadID, response.Turn.ID); err != nil {
+			c.logger.Warn("turn interrupt after context done failed", "thread_id", threadID, "turn_id", response.Turn.ID, "error", err)
+		}
+		cancel()
+		select {
+		case <-waiter.completed:
+		case <-time.After(3 * time.Second):
+		}
 		return "", ctx.Err()
 	case result := <-waiter.completed:
 		if result.Error != nil {
@@ -444,6 +492,13 @@ func (c *Client) call(ctx context.Context, method string, params any, out any) e
 		}
 		return nil
 	}
+}
+
+func (c *Client) interruptTurnLocked(ctx context.Context, threadID string, turnID string) error {
+	c.stateMu.Unlock()
+	err := c.InterruptTurn(ctx, threadID, turnID)
+	c.stateMu.Lock()
+	return err
 }
 
 func (c *Client) initialize(ctx context.Context) error {
@@ -673,6 +728,11 @@ func (c *Client) handleNotification(method string, params json.RawMessage) {
 		if event.Turn.Error != nil {
 			c.logger.Warn("turn completed with error", "turn_id", event.Turn.ID, "status", event.Turn.Status, "error", event.Turn.Error.Message)
 			waiter.completed <- turnResult{Error: errors.New(event.Turn.Error.Message)}
+			return
+		}
+		if event.Turn.Status == "interrupted" {
+			c.logger.Info("turn interrupted", "turn_id", event.Turn.ID)
+			waiter.completed <- turnResult{Error: ErrTurnInterrupted}
 			return
 		}
 		c.logger.Debug("turn completion notification", "turn_id", event.Turn.ID, "status", event.Turn.Status)

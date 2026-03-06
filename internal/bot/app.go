@@ -228,9 +228,16 @@ func (a *App) processMessage(session *discordgo.Session, event *discordgo.Messag
 		a.logger.Error("ensure channel thread failed", "channel", channelName, "channel_id", msg.ChannelID, "error", err)
 		return
 	}
+	if err := a.interruptChannelTurn(ctx, msg.ChannelID, threadSession.ID, msg.ID); err != nil {
+		a.logger.Warn("interrupt active channel turn failed", "channel", channelName, "channel_id", msg.ChannelID, "thread_id", threadSession.ID, "error", err)
+	}
 
 	reply, err := a.runConversationTurn(ctx, threadSession.ID, msg, profile, recent, facts, imageAttachmentURLs(event.Attachments))
 	if err != nil {
+		if errors.Is(err, codex.ErrTurnInterrupted) {
+			a.logger.Info("conversation turn interrupted", "channel", channelName, "channel_id", msg.ChannelID, "message_id", msg.ID)
+			return
+		}
 		a.logger.Error("conversation turn failed", "channel", channelName, "channel_id", msg.ChannelID, "error", err)
 		return
 	}
@@ -244,6 +251,24 @@ func (a *App) processMessage(session *discordgo.Session, event *discordgo.Messag
 		return
 	}
 	a.logger.Info("reply sent", "channel", msg.ChannelName, "channel_id", msg.ChannelID, "message_id", sentID)
+}
+
+func (a *App) interruptChannelTurn(ctx context.Context, channelID string, threadID string, messageID string) error {
+	if strings.TrimSpace(threadID) == "" {
+		return nil
+	}
+	interruptCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	turnID, ok, err := a.codex.InterruptActiveTurn(interruptCtx, threadID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
+	}
+	a.logger.Info("active channel turn interrupted", "channel_id", channelID, "thread_id", threadID, "interrupted_turn_id", turnID, "next_message_id", messageID)
+	return nil
 }
 
 func (a *App) processPresence(event *discordgo.PresenceUpdate) {

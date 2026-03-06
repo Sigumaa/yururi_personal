@@ -3,10 +3,12 @@ package codex
 import (
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/Sigumaa/yururi_personal/internal/config"
 )
@@ -101,5 +103,30 @@ func TestDynamicToolSignatureUsesExternalToolNames(t *testing.T) {
 
 	if got := client.DynamicToolSignature(); got != want {
 		t.Fatalf("signature mismatch: got %s want %s", got, want)
+	}
+}
+
+func TestHandleNotificationMarksInterruptedTurn(t *testing.T) {
+	client := NewClient(config.Config{AppName: "yururi"}, config.Paths{Workspace: "/tmp/workspace"}, slog.New(slog.NewTextHandler(io.Discard, nil)), NewToolRegistry())
+	waiter := &turnWaiter{
+		threadID:   "thread-1",
+		turnID:     "turn-1",
+		completed:  make(chan turnResult, 1),
+		receivedAt: time.Now(),
+	}
+
+	client.stateMu.Lock()
+	client.turns["turn-1"] = waiter
+	client.stateMu.Unlock()
+
+	client.handleNotification("turn/completed", json.RawMessage(`{"turn":{"id":"turn-1","status":"interrupted","error":null}}`))
+
+	select {
+	case result := <-waiter.completed:
+		if !errors.Is(result.Error, ErrTurnInterrupted) {
+			t.Fatalf("unexpected result: %#v", result)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected interrupted turn result")
 	}
 }
