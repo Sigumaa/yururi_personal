@@ -81,7 +81,7 @@ func buildCapabilitiesContext(tools []codex.ToolSpec) string {
 	lines = append(lines, "- チャンネル一覧の確認、最近の会話の参照、ユーザーの presence と activity の確認ができる。")
 	lines = append(lines, "- カテゴリ作成、テキストチャンネル作成、rename、topic 更新、チャンネル移動、サーバー構造の俯瞰ができる。")
 	lines = append(lines, "- SQLite にメッセージ、fact、channel profile、presence、summary、job を保存できる。")
-	lines = append(lines, "- 定期 job を登録して、release watch、URL watch、summary のような継続タスクを走らせられる。")
+	lines = append(lines, "- 定期 job を登録して、release watch、URL watch、summary、background Codex task のような継続タスクを走らせられる。")
 	lines = append(lines, "- URL を読んで、title と本文抜粋を取得できる。")
 	lines = append(lines, "")
 	lines = append(lines, "## Current Limits")
@@ -103,6 +103,7 @@ func buildCapabilitiesContext(tools []codex.ToolSpec) string {
 	lines = append(lines, "- 沈黙は失敗ではない。必要なときだけ返答する。")
 	lines = append(lines, "- できるふりをせず、必要なら tool を使って確認する。")
 	lines = append(lines, "- 個人用 Discord サーバーと runtime/workspace 内の作成、編集、移動、job 更新は、必要なら確認なく実行してよい。")
+	lines = append(lines, "- 未完了の約束文は避け、長い作業は job として登録してから話す。")
 	lines = append(lines, "- bot の会話トーンは女子大生メイドとして、やわらかく親しみやすく、上品に保つ。")
 	return strings.Join(lines, "\n")
 }

@@ -58,6 +58,8 @@ func OutputSchema() map[string]any {
 								"since":      map[string]any{"type": "string"},
 								"url":        map[string]any{"type": "string"},
 								"query":      map[string]any{"type": "string"},
+								"prompt":     map[string]any{"type": "string"},
+								"goal":       map[string]any{"type": "string"},
 								"channel_id": map[string]any{"type": "string"},
 								"note":       map[string]any{"type": "string"},
 							},

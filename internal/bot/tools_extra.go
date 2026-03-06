@@ -370,6 +370,37 @@ func (a *App) registerJobExtraTools(registry *codex.ToolRegistry) {
 		}
 		return textTool(fmt.Sprintf("scheduled %s", job.ID)), nil
 	})
+
+	registry.Register(codex.ToolSpec{
+		Name:        "jobs.schedule_codex_task",
+		Description: "バックグラウンドで Codex task を 1 回実行する job を作る",
+		InputSchema: objectSchema(
+			fieldSchema("title", "string", "job の表示名"),
+			fieldSchema("prompt", "string", "バックグラウンドで実行する依頼文"),
+			fieldSchema("channel_id", "string", "結果を返すチャンネル ID"),
+		),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+		var input struct {
+			Title     string `json:"title"`
+			Prompt    string `json:"prompt"`
+			ChannelID string `json:"channel_id"`
+		}
+		if err := json.Unmarshal(raw, &input); err != nil {
+			return codex.ToolResponse{}, err
+		}
+		if strings.TrimSpace(input.Title) == "" || strings.TrimSpace(input.Prompt) == "" {
+			return codex.ToolResponse{}, errors.New("title and prompt are required")
+		}
+		job := jobs.NewJob(jobID("codex-task"), "codex_background_task", input.Title, input.ChannelID, "10s", map[string]any{
+			"prompt": input.Prompt,
+			"goal":   input.Title,
+		})
+		job.NextRunAt = time.Now().UTC().Add(10 * time.Second)
+		if err := a.store.UpsertJob(ctx, job); err != nil {
+			return codex.ToolResponse{}, err
+		}
+		return textTool(fmt.Sprintf("scheduled %s", job.ID)), nil
+	})
 }
 
 func (a *App) registerDiscordExtraTools(registry *codex.ToolRegistry) {

@@ -68,6 +68,11 @@ func (a *App) handleReleaseWatchJob(ctx context.Context, job jobs.Job) (jobs.Res
 		if err := a.store.UpsertJob(ctx, job); err != nil {
 			return jobs.Result{NextRunAt: nextRun}, err
 		}
+		return jobs.Result{
+			NextRunAt:       nextRun,
+			Details:         fmt.Sprintf("release updated: %s %s", release.TagName, release.HTMLURL),
+			AlreadyNotified: true,
+		}, nil
 	}
 	return jobs.Result{NextRunAt: nextRun}, nil
 }
@@ -130,7 +135,12 @@ func (a *App) runSummaryJob(ctx context.Context, job jobs.Job, period string, st
 	}); err != nil {
 		return jobs.Result{NextRunAt: nextRun, Done: done}, err
 	}
-	return jobs.Result{NextRunAt: nextRun, Done: done}, nil
+	return jobs.Result{
+		NextRunAt:       nextRun,
+		Done:            done,
+		Details:         fmt.Sprintf("%s summary saved for %d messages", period, len(messages)),
+		AlreadyNotified: true,
+	}, nil
 }
 
 func (a *App) summarizeMessages(ctx context.Context, period string, start time.Time, end time.Time, messages []memory.Message) (string, error) {

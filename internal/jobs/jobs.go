@@ -3,6 +3,7 @@ package jobs
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"time"
 )
 
@@ -42,6 +43,7 @@ type Scheduler struct {
 	interval time.Duration
 	handlers map[string]Handler
 	logger   *slog.Logger
+	observer Observer
 }
 
 type Handler interface {
@@ -49,9 +51,13 @@ type Handler interface {
 }
 
 type Result struct {
-	NextRunAt time.Time
-	Done      bool
+	NextRunAt       time.Time
+	Done            bool
+	Details         string
+	AlreadyNotified bool
 }
+
+type Observer func(Job, Result, error)
 
 func NewScheduler(store Store, interval time.Duration) *Scheduler {
 	return &Scheduler{
@@ -67,6 +73,10 @@ func (s *Scheduler) Register(kind string, handler Handler) {
 
 func (s *Scheduler) SetLogger(logger *slog.Logger) {
 	s.logger = logger
+}
+
+func (s *Scheduler) SetObserver(observer Observer) {
+	s.observer = observer
 }
 
 func (s *Scheduler) Run(ctx context.Context) error {
@@ -104,6 +114,7 @@ func (s *Scheduler) tick(ctx context.Context) error {
 			if err := s.store.UpdateJobState(ctx, job.ID, StateFailed, nextRun, "missing handler", nil); err != nil {
 				return err
 			}
+			s.notify(job, Result{NextRunAt: nextRun, Details: "missing handler"}, nil)
 			continue
 		}
 		lastRunAt := now
@@ -122,6 +133,7 @@ func (s *Scheduler) tick(ctx context.Context) error {
 			if err := s.store.UpdateJobState(ctx, job.ID, StateFailed, nextRun, err.Error(), &lastRunAt); err != nil {
 				return err
 			}
+			s.notify(job, Result{NextRunAt: nextRun}, err)
 			continue
 		}
 		state := StatePending
@@ -134,8 +146,19 @@ func (s *Scheduler) tick(ctx context.Context) error {
 		if err := s.store.UpdateJobState(ctx, job.ID, state, result.NextRunAt, "", &lastRunAt); err != nil {
 			return err
 		}
+		s.notify(job, result, nil)
 	}
 	return nil
+}
+
+func (s *Scheduler) notify(job Job, result Result, err error) {
+	if s.observer == nil {
+		return
+	}
+	if err == nil && strings.TrimSpace(result.Details) == "" {
+		return
+	}
+	go s.observer(job, result, err)
 }
 
 func nextRun(job Job, now time.Time) time.Time {

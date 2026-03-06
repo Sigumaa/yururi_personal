@@ -165,6 +165,11 @@ func (a *App) handleURLWatchJob(ctx context.Context, job jobs.Job) (jobs.Result,
 			return jobs.Result{NextRunAt: nextRun}, err
 		}
 		a.logger.Info("url watch changed", "job_id", job.ID, "url", url, "title", snapshot.Title)
+		return jobs.Result{
+			NextRunAt:       nextRun,
+			Details:         fmt.Sprintf("url changed: %s %s", snapshot.Title, snapshot.FinalURL),
+			AlreadyNotified: true,
+		}, nil
 	}
 	return jobs.Result{NextRunAt: nextRun}, nil
 }
