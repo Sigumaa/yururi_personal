@@ -87,10 +87,7 @@ func (a *App) composeReplyFromExecution(ctx context.Context, msg memory.Message,
 	}
 
 	prompt := buildExecutionReplyPrompt(msg, planned, report, draft)
-	a.codexMu.Lock()
-	defer a.codexMu.Unlock()
-
-	raw, err := a.codex.RunTurn(ctx, a.thread.ID, prompt)
+	raw, err := a.runThreadTurn(ctx, a.thread.ID, prompt)
 	if err != nil {
 		return "", fmt.Errorf("compose execution reply: %w", err)
 	}
@@ -112,9 +109,7 @@ func (a *App) handleJobResult(job jobs.Job, result jobs.Result, runErr error) {
 	defer cancel()
 
 	prompt := buildJobFollowUpPrompt(job, result, runErr)
-	a.codexMu.Lock()
-	raw, err := a.codex.RunTurn(ctx, a.thread.ID, prompt)
-	a.codexMu.Unlock()
+	raw, err := a.runThreadTurn(ctx, a.thread.ID, prompt)
 	if err != nil {
 		a.logger.Warn("job follow-up turn failed", "job_id", job.ID, "kind", job.Kind, "error", err)
 		return
@@ -145,14 +140,17 @@ func (a *App) handleBackgroundCodexTaskJob(ctx context.Context, job jobs.Job) (j
 		return jobs.Result{Done: true}, fmt.Errorf("payload.prompt is required")
 	}
 
-	a.logger.Info("background codex task start", "job_id", job.ID, "title", job.Title)
-	a.codexMu.Lock()
-	raw, err := a.codex.RunTurn(ctx, a.thread.ID, prompt)
-	a.codexMu.Unlock()
+	session, err := a.ensureJobThread(ctx, job)
 	if err != nil {
 		return jobs.Result{Done: true}, err
 	}
-	a.logger.Info("background codex task completed", "job_id", job.ID, "response_bytes", len(raw))
+
+	a.logger.Info("background codex task start", "job_id", job.ID, "title", job.Title, "thread_id", session.ID)
+	raw, err := a.runThreadTurn(ctx, session.ID, prompt)
+	if err != nil {
+		return jobs.Result{Done: true}, err
+	}
+	a.logger.Info("background codex task completed", "job_id", job.ID, "thread_id", session.ID, "response_bytes", len(raw))
 	return jobs.Result{
 		NextRunAt: time.Now().UTC(),
 		Done:      true,

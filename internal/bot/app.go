@@ -36,8 +36,9 @@ type App struct {
 	scheduler *jobs.Scheduler
 	http      *http.Client
 
-	codexMu sync.Mutex
-	thread  codex.ThreadSession
+	threadMu    sync.Mutex
+	threadLocks map[string]*sync.Mutex
+	thread      codex.ThreadSession
 }
 
 func New(cfg config.Config, logger *slog.Logger) (*App, error) {
@@ -55,11 +56,12 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	}
 
 	app := &App{
-		cfg:    cfg,
-		paths:  paths,
-		logger: logger,
-		loc:    loc,
-		store:  store,
+		cfg:         cfg,
+		paths:       paths,
+		logger:      logger,
+		loc:         loc,
+		store:       store,
+		threadLocks: map[string]*sync.Mutex{},
 		http: &http.Client{
 			Timeout: 10 * time.Second,
 		},
@@ -288,10 +290,8 @@ func (a *App) planDecision(ctx context.Context, msg memory.Message, profile memo
 	}
 
 	prompt := buildPlannerPrompt(msg, profile, recent, facts, a.tools.Specs(), a.discordSelfMention())
-	a.codexMu.Lock()
-	defer a.codexMu.Unlock()
 	a.logger.Info("codex turn start", "thread_id", a.thread.ID, "channel", msg.ChannelName, "message_id", msg.ID, "prompt_bytes", len(prompt))
-	raw, err := a.codex.RunJSONTurn(ctx, a.thread.ID, prompt, decision.OutputSchema())
+	raw, err := a.runThreadJSONTurn(ctx, a.thread.ID, prompt, decision.OutputSchema())
 	if err != nil {
 		a.logger.Warn("codex turn failed", "channel", msg.ChannelName, "message_id", msg.ID, "error", err)
 		return decision.ReplyDecision{}, fmt.Errorf("run codex turn: %w", err)

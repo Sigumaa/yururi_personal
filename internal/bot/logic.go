@@ -118,7 +118,12 @@ func (a *App) runSummaryJob(ctx context.Context, job jobs.Job, period string, st
 	}
 	a.logger.Info("summary building", "job_id", job.ID, "period", period, "message_count", len(messages))
 
-	summaryText, err := a.summarizeMessages(ctx, period, start, end, messages)
+	session, err := a.ensureJobThread(ctx, job)
+	if err != nil {
+		return jobs.Result{NextRunAt: nextRun, Done: done}, err
+	}
+
+	summaryText, err := a.summarizeMessages(ctx, session.ID, period, start, end, messages)
 	if err != nil {
 		return jobs.Result{NextRunAt: nextRun, Done: done}, err
 	}
@@ -143,8 +148,8 @@ func (a *App) runSummaryJob(ctx context.Context, job jobs.Job, period string, st
 	}, nil
 }
 
-func (a *App) summarizeMessages(ctx context.Context, period string, start time.Time, end time.Time, messages []memory.Message) (string, error) {
-	if a.thread.ID == "" {
+func (a *App) summarizeMessages(ctx context.Context, threadID string, period string, start time.Time, end time.Time, messages []memory.Message) (string, error) {
+	if threadID == "" {
 		return fallbackSummary(period, start, end, messages), nil
 	}
 
@@ -171,9 +176,7 @@ daily と wake は短め、weekly と growth は少し俯瞰を入れてくだ�
 messages:
 %s`, period, start.In(a.loc).Format(time.RFC3339), end.In(a.loc).Format(time.RFC3339), strings.Join(lines, "\n"))
 
-	a.codexMu.Lock()
-	defer a.codexMu.Unlock()
-	raw, err := a.codex.RunJSONTurn(ctx, a.thread.ID, prompt, schema)
+	raw, err := a.runThreadJSONTurn(ctx, threadID, prompt, schema)
 	if err != nil {
 		a.logger.Warn("summary codex turn failed; using fallback summary", "period", period, "error", err)
 		return fallbackSummary(period, start, end, messages), nil

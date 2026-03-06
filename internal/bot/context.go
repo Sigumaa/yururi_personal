@@ -57,10 +57,7 @@ func (a *App) primeBotContext(ctx context.Context) error {
 
 %s`, bundle)
 
-	a.codexMu.Lock()
-	defer a.codexMu.Unlock()
-
-	if _, err := a.codex.RunTurn(ctx, a.thread.ID, prompt); err != nil {
+	if _, err := a.runThreadTurn(ctx, a.thread.ID, prompt); err != nil {
 		return fmt.Errorf("prime bot context: %w", err)
 	}
 	if err := a.store.SetKV(ctx, botContextHashKey, hash); err != nil {
