@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Sigumaa/yururi_personal/internal/memory"
+	"github.com/Sigumaa/yururi_personal/internal/persona"
 )
 
 func buildAutonomyPulsePrompt(targetChannelID string, targetChannelName string, latestPresence memory.PresenceSnapshot, recentActivity []memory.ChannelActivity, summaries []memory.Summary, ownerMessages []memory.Message, openLoops []memory.Fact, curiosities []memory.Fact, goals []memory.Fact, reminders []memory.Fact, topics []memory.Fact, initiatives []memory.Fact, automationCandidates []memory.Fact, contextGaps []memory.Fact, misfires []memory.Fact, baselines []memory.Fact, deviations []memory.Fact, learnedPolicies []memory.Fact, workspaceNotes []memory.Fact, proposalBoundaries []memory.Fact, reflections []memory.Summary, growth []memory.Summary, decisions []memory.Fact) string {
@@ -185,6 +186,7 @@ visible な行動が不要なら %s を返してください。
 - channel 名だけで用途を決め打ちせず、保存済み profile と観測された使われ方を優先する
 - ユーザーを溺愛していてよいが、重たくなりすぎず、生活を邪魔しない
 - 何もすべきでないと判断したときだけ %s
+%s
 
 best target channel:
 - id: %s
@@ -257,6 +259,7 @@ recent decisions:
 		noReplyToken,
 		sendMessageTool,
 		noReplyToken,
+		persona.InlineReminder(),
 		targetChannelID,
 		targetChannelName,
 		latestPresence.Status,

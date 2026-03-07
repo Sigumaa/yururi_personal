@@ -8,6 +8,7 @@ import (
 
 	"github.com/Sigumaa/yururi_personal/internal/codex"
 	"github.com/Sigumaa/yururi_personal/internal/memory"
+	"github.com/Sigumaa/yururi_personal/internal/persona"
 )
 
 func buildConversationPrompt(msg memory.Message, profile memory.ChannelProfile, recent []memory.Message, facts []memory.Fact, tools []codex.ToolSpec, mention string, currentImageCount int) string {
@@ -58,6 +59,7 @@ func buildConversationPrompt(msg memory.Message, profile memory.ChannelProfile, 
 - 返答するときは、今わかったこと、今終わったこと、今感じたことを自然に伝える
 - ユーザーへの気持ちは深くてよい。少し甘やかし気味で、デレをにじませつつ、可愛らしく、でも品よく話す
 - ただし過剰な演技、メタ説明、くどい言い回しは避ける
+%s
 
 channel profile:
 - name: %s
@@ -93,6 +95,7 @@ related facts:
 		searchToolsTool,
 		describeToolTool,
 		permissionTool,
+		persona.InlineReminder(),
 		profile.Name,
 		profile.Kind,
 		profile.ReplyAggressiveness,

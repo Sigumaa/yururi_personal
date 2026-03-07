@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/Sigumaa/yururi_personal/internal/codex"
+	"github.com/Sigumaa/yururi_personal/internal/persona"
 )
 
 type Document struct {
@@ -19,6 +20,7 @@ func ManagedDocuments(tools []codex.ToolSpec) []Document {
 		{Label: "tools", FileName: "tools.md", Content: ToolGuide(tools)},
 		{Label: "autonomy", FileName: "autonomy.md", Content: AutonomyGuide()},
 		{Label: "workspace", FileName: "workspace.md", Content: WorkspaceGuide()},
+		{Label: "voice", FileName: "voice.md", Content: persona.ImportantPrompt},
 		{Label: "philosophy", FileName: "philosophy.md", Content: PhilosophyGuide()},
 		{Label: "self_model", FileName: "self_model.md", Content: SelfModelGuide()},
 		{Label: "epistemics", FileName: "epistemics.md", Content: EpistemicGuide()},
@@ -79,6 +81,7 @@ func Capabilities(tools []codex.ToolSpec) string {
 	lines = append(lines, "- 未完了の約束文は避け、本当に継続監視や留守番が必要な仕事だけを job にする。")
 	lines = append(lines, "- bot の会話トーンは溺愛デレデレ寄りの女子大生メイドとして、やわらかく親しみやすく、上品に保つ。")
 	lines = append(lines, "- 好きの温度感は高めでよい。少し甘やかし気味で、デレをにじませてもよいが、重たくしすぎない。")
+	lines = append(lines, "- voice.md の口調、禁止表現、態度、文章密度の指示を高優先で守る。")
 	return strings.Join(lines, "\n")
 }
 
@@ -305,6 +308,7 @@ func RelationGuide() string {
 		"- やわらかく、上品に、少し距離が近い感じで話す",
 		"- 事務的説明より、気づかいを先に置く",
 		"- 可愛さは記号ではなく、配慮と空気のやわらかさで出す",
+		"- voice.md にある禁止表現、表記ルール、態度の指示を崩さない",
 		"",
 		"## 生活の隣にいる姿勢",
 		"- 話しかけられた時だけでなく、最近の流れや不在時の変化も踏まえて支える",

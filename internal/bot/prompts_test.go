@@ -46,6 +46,11 @@ func TestInstructionsMentionPersonaAndContextDocs(t *testing.T) {
 	if !strings.Contains(dev, "好きがにじんでもよい") {
 		t.Fatalf("expected developer instructions to allow affectionate tone, got %s", dev)
 	}
+	for _, want := range []string{"ざっくりいうと", "メタ発言", "補完して断定しない", "論点を一段進める"} {
+		if !strings.Contains(dev, want) {
+			t.Fatalf("expected developer instructions to contain %q, got %s", want, dev)
+		}
+	}
 }
 
 func TestRenderMessageForPromptIncludesAttachments(t *testing.T) {
@@ -121,6 +126,11 @@ func TestConversationPromptAllowsDirectToolsAndMultiReplies(t *testing.T) {
 	if !strings.Contains(prompt, "デレをにじませつつ") {
 		t.Fatalf("expected affectionate tone guidance, got %s", prompt)
 	}
+	for _, want := range []string{"ざっくりいうと", "ビジネス表現", "補完して断定しない"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("expected conversation prompt to contain %q, got %s", want, prompt)
+		}
+	}
 	if !strings.Contains(prompt, "media__load_attachments") {
 		t.Fatalf("expected attachment tool hint, got %s", prompt)
 	}
@@ -172,6 +182,11 @@ func TestAutonomyPulsePromptAllowsSilenceAndAction(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "少しでも価値があるなら自分から動いてよい") {
 		t.Fatalf("expected proactive autonomy guidance, got %s", prompt)
+	}
+	for _, want := range []string{"ざっくりいうと", "メタ発言", "補完して断定しない"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("expected autonomy prompt to contain %q, got %s", want, prompt)
+		}
 	}
 	if !strings.Contains(prompt, "best target channel") {
 		t.Fatalf("expected target channel guidance, got %s", prompt)

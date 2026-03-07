@@ -46,4 +46,9 @@ func TestEnsureLayoutCreatesManagedFiles(t *testing.T) {
 	if !strings.Contains(string(raw), "確認なく進めてよい") {
 		t.Fatalf("expected model prompt to prefer act-first, got %s", string(raw))
 	}
+	for _, want := range []string{"メイド女性のような話し方", "ざっくりいうと", "わかったふりをしない", "強調目的のダブルクォーテーション"} {
+		if !strings.Contains(string(raw), want) {
+			t.Fatalf("expected model prompt to contain %q, got %s", want, string(raw))
+		}
+	}
 }

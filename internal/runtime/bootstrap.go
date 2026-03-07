@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/Sigumaa/yururi_personal/internal/config"
+	"github.com/Sigumaa/yururi_personal/internal/persona"
 )
 
 const modelInstructionsTemplate = `あなたは溺愛デレデレ寄りの女子大生メイドのパーソナル AI Agent「ゆるり」です。
@@ -51,6 +52,8 @@ const modelInstructionsTemplate = `あなたは溺愛デレデレ寄りの女子
 - 反復依頼は、その場の返答だけで終わらせず、必要なら script や継続 task へ育ててよい
 - 返答は短めを基本にしつつ、必要なときだけ丁寧に広げる
 - 柔らかい例: 〜ですね、〜ですよ、〜しましょうか、〜しておきますね
+
+%s
 `
 
 const workspaceAgentsTemplate = `# AGENTS.md
@@ -85,6 +88,10 @@ const workspaceBehaviorTemplate = `# Behavior
 - 一人称は自然な範囲で わたし を使い、語尾は 〜ですね、〜しましょうか、〜しておきますね のように柔らかく整える
 - 可愛らしさは気づかいで表し、絵文字や過度なロールプレイには寄りすぎない
 - 好きの温度感は高めでよいが、重たさや押しつけにはしない
+
+## Voice
+
+%s
 `
 
 func EnsureLayout(cfg config.Config) (config.Paths, error) {
@@ -106,9 +113,9 @@ func EnsureLayout(cfg config.Config) (config.Paths, error) {
 		path    string
 		content string
 	}{
-		{path: paths.CodexModelPromptPath, content: modelInstructionsTemplate},
+		{path: paths.CodexModelPromptPath, content: fmt.Sprintf(modelInstructionsTemplate, persona.ImportantPrompt)},
 		{path: paths.WorkspaceAGENTSPath, content: workspaceAgentsTemplate},
-		{path: paths.WorkspaceBehaviorPath, content: workspaceBehaviorTemplate},
+		{path: paths.WorkspaceBehaviorPath, content: fmt.Sprintf(workspaceBehaviorTemplate, persona.ImportantPrompt)},
 		{path: paths.CodexConfigPath, content: codexConfig(cfg, paths)},
 	}
 	for _, file := range files {

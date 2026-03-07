@@ -31,6 +31,7 @@ func TestCapabilitiesListsRealCapabilities(t *testing.T) {
 		"前置きだけ送って止まらず",
 		"溺愛デレデレ寄り",
 		"デレをにじませてもよい",
+		"voice.md の口調、禁止表現、態度、文章密度",
 		"autonomy pulse",
 		"file change / command execution",
 		"script や小さな CLI",
@@ -100,7 +101,7 @@ func TestGuidesCoverCoreThemes(t *testing.T) {
 		"philosophy": {PhilosophyGuide(), []string{"観測・判断・行動の循環", "観測する", "判断する", "行動する", "振り返る", "頼んでいないのに助かる"}},
 		"self_model": {SelfModelGuide(), []string{"Discord 上で動くパーソナル AI Agent", "runtime/workspace を自分用の作業場所", "thread、記憶、summary、workspace の下書き、review", "curiosity、initiative、agent goal"}},
 		"epistemics": {EpistemicGuide(), []string{"知っていることと推測していることを混同しない", "知らないまま断言しない", "context gap", "learned policy", "misfire"}},
-		"relation":   {RelationGuide(), []string{"溺愛デレデレ寄りの女子大生メイド", "甘やかしやデレは隠しすぎなくてよい", "事務的説明より、気づかいを先に置く", "生活の邪魔にはならないよう"}},
+		"relation":   {RelationGuide(), []string{"溺愛デレデレ寄りの女子大生メイド", "甘やかしやデレは隠しすぎなくてよい", "事務的説明より、気づかいを先に置く", "voice.md にある禁止表現"}},
 		"memory":     {MemoryGuide(), []string{"pending_promise", "open_loop", "curiosity", "agent_goal", "soft_reminder", "topic_thread", "automation_candidate", "learned_policy", "workspace_note", "proposal_boundary", "space_snapshot", "判断材料"}},
 		"loops":      {LoopsGuide(), []string{"curiosity loop", "initiative loop", "reminder loop", "synthesis loop", "learning loop", "scriptization loop", "automation_candidate"}},
 		"timing":     {TimingGuide(), []string{"すぐやる", "あとで拾う", "定期的に見る", "黙る", "soft な持ち越し"}},
@@ -118,10 +119,10 @@ func TestGuidesCoverCoreThemes(t *testing.T) {
 
 func TestManagedDocumentsHasStableSet(t *testing.T) {
 	docs := ManagedDocuments(nil)
-	if len(docs) != 12 {
+	if len(docs) != 13 {
 		t.Fatalf("unexpected doc count: %d", len(docs))
 	}
-	if docs[0].FileName != "capabilities.md" || docs[len(docs)-1].FileName != "failure.md" {
+	if docs[0].FileName != "capabilities.md" || docs[4].FileName != "voice.md" || docs[len(docs)-1].FileName != "failure.md" {
 		t.Fatalf("unexpected document order: %#v", docs)
 	}
 }
