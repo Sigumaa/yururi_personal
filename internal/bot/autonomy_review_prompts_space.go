@@ -6,6 +6,7 @@ import (
 
 	discordsvc "github.com/Sigumaa/yururi_personal/internal/discord"
 	"github.com/Sigumaa/yururi_personal/internal/memory"
+	"github.com/Sigumaa/yururi_personal/internal/space"
 )
 
 func buildChannelCurationPrompt(channels []discordsvc.Channel, profiles []memory.ChannelProfile, activity []memory.ChannelActivity) string {
@@ -18,7 +19,7 @@ func buildChannelCurationPrompt(channels []discordsvc.Channel, profiles []memory
 必要な提案が特に無ければ %s だけを返してください。
 
 server snapshot:
-%s`, noReplyToken, describeServer(channels, profiles, activity, time.UTC))
+%s`, noReplyToken, space.DescribeServer(channels, profiles, activity, time.UTC))
 }
 
 func buildChannelRoleReviewPrompt(channels []discordsvc.Channel, profiles []memory.ChannelProfile, activity []memory.ChannelActivity) string {
@@ -28,5 +29,5 @@ func buildChannelRoleReviewPrompt(channels []discordsvc.Channel, profiles []memo
 必要性が薄ければ %s だけを返してください。
 
 server snapshot:
-%s`, noReplyToken, describeServer(channels, profiles, activity, time.UTC))
+%s`, noReplyToken, space.DescribeServer(channels, profiles, activity, time.UTC))
 }

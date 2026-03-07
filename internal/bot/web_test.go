@@ -7,6 +7,7 @@ import (
 
 	discordsvc "github.com/Sigumaa/yururi_personal/internal/discord"
 	"github.com/Sigumaa/yururi_personal/internal/memory"
+	"github.com/Sigumaa/yururi_personal/internal/space"
 )
 
 func TestExtractHTMLText(t *testing.T) {
@@ -29,7 +30,7 @@ func TestExtractHTMLText(t *testing.T) {
 }
 
 func TestDescribeServerIncludesProfilesAndActivity(t *testing.T) {
-	out := describeServer(
+	out := space.DescribeServer(
 		[]discordsvc.Channel{
 			{ID: "cat", Name: "work", Type: 4},
 			{ID: "c1", Name: "general", ParentID: "cat", Type: 0, Topic: "daily notes"},

@@ -10,6 +10,7 @@ import (
 
 	"github.com/Sigumaa/yururi_personal/internal/codex"
 	"github.com/Sigumaa/yururi_personal/internal/memory"
+	"github.com/Sigumaa/yururi_personal/internal/space"
 )
 
 func (a *App) registerDiscordAutonomyReadTools(registry *codex.ToolRegistry) {
@@ -25,7 +26,7 @@ func (a *App) registerDiscordAutonomyReadTools(registry *codex.ToolRegistry) {
 		if err != nil {
 			return codex.ToolResponse{}, err
 		}
-		return textTool(describeCategoryMap(channels)), nil
+		return textTool(space.DescribeCategoryMap(channels)), nil
 	})
 
 	registry.Register(codex.ToolSpec{
@@ -40,7 +41,7 @@ func (a *App) registerDiscordAutonomyReadTools(registry *codex.ToolRegistry) {
 		if err != nil {
 			return codex.ToolResponse{}, err
 		}
-		return textTool(describeOrphanChannels(channels)), nil
+		return textTool(space.DescribeOrphans(channels)), nil
 	})
 
 	registry.Register(codex.ToolSpec{
@@ -70,7 +71,7 @@ func (a *App) registerDiscordAutonomyReadTools(registry *codex.ToolRegistry) {
 		if err != nil {
 			return codex.ToolResponse{}, err
 		}
-		stale := findStaleTextChannels(channels, activity)
+		stale := space.FindStaleTextChannels(channels, activity)
 		if len(stale) == 0 {
 			return textTool("no stale channels"), nil
 		}
@@ -116,7 +117,7 @@ func (a *App) registerDiscordAutonomyReadTools(registry *codex.ToolRegistry) {
 		if err != nil {
 			return codex.ToolResponse{}, err
 		}
-		return textTool(planSpaceRefresh(channels, profiles, activity, input.SinceHours)), nil
+		return textTool(space.PlanRefresh(channels, profiles, activity, input.SinceHours)), nil
 	})
 
 	registry.Register(codex.ToolSpec{
@@ -146,7 +147,7 @@ func (a *App) registerDiscordAutonomyReadTools(registry *codex.ToolRegistry) {
 		if err != nil {
 			return codex.ToolResponse{}, err
 		}
-		return textTool(suggestChannelProfiles(channels, profiles, activity, input.SinceHours)), nil
+		return textTool(space.SuggestChannelProfiles(channels, profiles, activity, input.SinceHours)), nil
 	})
 }
 
@@ -187,7 +188,7 @@ func (a *App) registerDiscordAutonomySnapshotTools(registry *codex.ToolRegistry)
 			loc = time.UTC
 		}
 		now := time.Now().UTC()
-		content := formatSpaceSnapshotContent(strings.TrimSpace(input.Label), input.SinceHours, describeServer(channels, profiles, activity, loc))
+		content := space.FormatSpaceSnapshotContent(strings.TrimSpace(input.Label), input.SinceHours, space.DescribeServer(channels, profiles, activity, loc))
 		if err := a.store.SaveSummary(ctx, memory.Summary{
 			Period:    "space_snapshot",
 			ChannelID: "",
@@ -222,7 +223,7 @@ func (a *App) registerDiscordAutonomySnapshotTools(registry *codex.ToolRegistry)
 		}
 		lines := make([]string, 0, len(snapshots))
 		for _, item := range snapshots {
-			lines = append(lines, fmt.Sprintf("- [%s] %s", item.CreatedAt.In(a.loc).Format(time.RFC3339), firstNonEmptyLine(item.Content)))
+			lines = append(lines, fmt.Sprintf("- [%s] %s", item.CreatedAt.In(a.loc).Format(time.RFC3339), space.FirstNonEmptyLine(item.Content)))
 		}
 		return textTool(strings.Join(lines, "\n")), nil
 	})
@@ -239,7 +240,7 @@ func (a *App) registerDiscordAutonomySnapshotTools(registry *codex.ToolRegistry)
 		if len(snapshots) < 2 {
 			return textTool("not enough space snapshots"), nil
 		}
-		diff := diffSpaceSnapshotContents(snapshots[1].Content, snapshots[0].Content)
+		diff := space.DiffRecentSnapshots(snapshots[1].Content, snapshots[0].Content)
 		if strings.TrimSpace(diff) == "" {
 			return textTool("no space snapshot diff"), nil
 		}

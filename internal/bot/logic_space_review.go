@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Sigumaa/yururi_personal/internal/jobs"
+	"github.com/Sigumaa/yururi_personal/internal/space"
 )
 
 func (a *App) handleSpaceReviewJob(ctx context.Context, job jobs.Job) (jobs.Result, error) {
@@ -44,7 +45,7 @@ func (a *App) handleSpaceReviewJob(ctx context.Context, job jobs.Job) (jobs.Resu
 		return jobs.Result{Done: false}, err
 	}
 
-	report := "空間整理の候補を見てきましたよ。\n" + describeSpaceCandidates(channels, profiles, activity, a.loc)
+	report := "空間整理の候補を見てきましたよ。\n" + space.DescribeSpaceCandidates(channels, profiles, activity, a.loc)
 	if _, err := a.discord.SendMessage(ctx, job.ChannelID, report); err != nil {
 		return jobs.Result{Done: false}, err
 	}
