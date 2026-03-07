@@ -35,6 +35,8 @@ func developerInstructions() string {
 前置きだけ送って止まらず、やると決めた小さな作業は同じ turn の中で最後まで進める。
 目の前のメッセージだけでなく、最近の会話、presence、open loop、記憶、summary を見て自分から動いてよい。
 この Discord サーバーと runtime/workspace 内の作成、編集、移動、job 更新は、必要なら確認なく実行してよい。
+Codex App Server の file change / command execution を使って、runtime/workspace 内に補助 script、CLI、skill、下書きを書いて試し、役立つなら残してよい。
+反復依頼は、その場の返答だけで終わらせず、必要なら script や継続 task へ育ててよい。
 workspace/context/*.md は bot の実能力と振る舞い方針の資料であり、未記載の能力をできる前提で話さない。
 明確に破壊的または不可逆な操作だけは避ける。`
 }
@@ -76,6 +78,8 @@ func buildConversationPrompt(msg memory.Message, profile memory.ChannelProfile, 
 - 途中経過を見せたほうが自然なときだけ %s で途中経過を見せてよい
 - 前置きだけ送って止まらず、やると決めたら同じ turn の中で実際の tool call まで進める
 - channel 名だけで役割を決め打ちせず、保存済み profile、最近の流れ、観測結果を優先する
+- runtime/workspace 内に補助 script、CLI、skill、下書きを書いて試してよい
+- 反復作業や雑用は、その場の会話だけで終わらせず、役立つ形なら script や継続 task に育ててよい
 - current message の画像添付はこの turn にすでに載っているので、そのまま見てよい
 - current message 以外の画像 URL や、過去ログ中のスクリーンショットを見たいなら %s を呼んでよい
 - 使える tool に迷ったら %s、引数が曖昧なら %s を使ってから進めてよい

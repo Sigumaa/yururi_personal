@@ -34,6 +34,12 @@ func TestInstructionsMentionPersonaAndContextDocs(t *testing.T) {
 	if !strings.Contains(dev, "前置きだけ送って止まらず") {
 		t.Fatalf("expected developer instructions to discourage empty progress-only replies, got %s", dev)
 	}
+	if !strings.Contains(dev, "file change / command execution") {
+		t.Fatalf("expected developer instructions to mention codex file/command execution, got %s", dev)
+	}
+	if !strings.Contains(dev, "script や継続 task へ育ててよい") {
+		t.Fatalf("expected developer instructions to mention script/task growth, got %s", dev)
+	}
 	if !strings.Contains(dev, "重たくなりすぎず") {
 		t.Fatalf("expected developer instructions to temper doting tone, got %s", dev)
 	}
@@ -132,6 +138,12 @@ func TestConversationPromptAllowsDirectToolsAndMultiReplies(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "前置きだけ送って止まらず") {
 		t.Fatalf("expected no-progress-only guidance, got %s", prompt)
+	}
+	if !strings.Contains(prompt, "補助 script、CLI、skill、下書きを書いて試してよい") {
+		t.Fatalf("expected script experimentation guidance, got %s", prompt)
+	}
+	if !strings.Contains(prompt, "script や継続 task に育ててよい") {
+		t.Fatalf("expected script/task growth guidance, got %s", prompt)
 	}
 	if !strings.Contains(prompt, "デレをにじませつつ") {
 		t.Fatalf("expected affectionate tone guidance, got %s", prompt)
