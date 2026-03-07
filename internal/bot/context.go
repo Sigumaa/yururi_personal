@@ -6,47 +6,24 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/Sigumaa/yururi_personal/internal/selfmodel"
 )
 
 const botContextHashKey = "codex.bot_context_hash"
 
 func (a *App) syncBotContext() error {
-	capabilities := buildCapabilitiesContext(a.tools.Specs())
-	toolGuide := buildToolGuideContext(a.tools.Specs())
-	autonomyGuide := buildAutonomyGuideContext()
-	workspaceGuide := buildWorkspaceGuideContext()
-	philosophyGuide := buildPhilosophyGuideContext()
-	selfModelGuide := buildSelfModelGuideContext()
-	epistemicGuide := buildEpistemicGuideContext()
-	relationGuide := buildRelationGuideContext()
-	memoryGuide := buildMemoryGuideContext()
-	loopsGuide := buildLoopsGuideContext()
-	timingGuide := buildTimingGuideContext()
-	failureGuide := buildFailureGuideContext()
 	if err := os.MkdirAll(a.paths.WorkspaceContextDir, 0o755); err != nil {
 		return fmt.Errorf("create bot context dir: %w", err)
 	}
-	files := []struct {
-		path    string
-		content string
-		label   string
-	}{
-		{path: a.paths.WorkspaceCapabilitiesPath, content: capabilities, label: "capabilities"},
-		{path: filepath.Join(a.paths.WorkspaceContextDir, "tools.md"), content: toolGuide, label: "tools"},
-		{path: filepath.Join(a.paths.WorkspaceContextDir, "autonomy.md"), content: autonomyGuide, label: "autonomy"},
-		{path: filepath.Join(a.paths.WorkspaceContextDir, "workspace.md"), content: workspaceGuide, label: "workspace"},
-		{path: filepath.Join(a.paths.WorkspaceContextDir, "philosophy.md"), content: philosophyGuide, label: "philosophy"},
-		{path: filepath.Join(a.paths.WorkspaceContextDir, "self_model.md"), content: selfModelGuide, label: "self_model"},
-		{path: filepath.Join(a.paths.WorkspaceContextDir, "epistemics.md"), content: epistemicGuide, label: "epistemics"},
-		{path: filepath.Join(a.paths.WorkspaceContextDir, "relation.md"), content: relationGuide, label: "relation"},
-		{path: filepath.Join(a.paths.WorkspaceContextDir, "memory.md"), content: memoryGuide, label: "memory"},
-		{path: filepath.Join(a.paths.WorkspaceContextDir, "loops.md"), content: loopsGuide, label: "loops"},
-		{path: filepath.Join(a.paths.WorkspaceContextDir, "timing.md"), content: timingGuide, label: "timing"},
-		{path: filepath.Join(a.paths.WorkspaceContextDir, "failure.md"), content: failureGuide, label: "failure"},
-	}
-	for _, file := range files {
-		if err := os.WriteFile(file.path, []byte(file.content), 0o644); err != nil {
-			return fmt.Errorf("write %s context: %w", file.label, err)
+
+	for _, doc := range selfmodel.ManagedDocuments(a.tools.Specs()) {
+		path := filepath.Join(a.paths.WorkspaceContextDir, doc.FileName)
+		if doc.FileName == "capabilities.md" {
+			path = a.paths.WorkspaceCapabilitiesPath
+		}
+		if err := os.WriteFile(path, []byte(doc.Content), 0o644); err != nil {
+			return fmt.Errorf("write %s context: %w", doc.Label, err)
 		}
 	}
 	return nil
