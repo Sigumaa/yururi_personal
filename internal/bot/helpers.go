@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -130,4 +131,15 @@ func sanitizeChannelName(value string) string {
 		return value[:90]
 	}
 	return value
+}
+
+func formatMap(value map[string]any) string {
+	if len(value) == 0 {
+		return "{}"
+	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return "{}"
+	}
+	return string(raw)
 }
