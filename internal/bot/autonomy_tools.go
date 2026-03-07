@@ -670,19 +670,15 @@ func (a *App) registerDiscordAutonomyTools(registry *codex.ToolRegistry) {
 }
 
 func formatSpaceSnapshotContent(label string, sinceHours int, snapshot string) string {
+	if strings.TrimSpace(label) == "" {
+		label = "snapshot"
+	}
 	lines := []string{
-		fmt.Sprintf("snapshot label: %s", fallbackLabel(label)),
+		fmt.Sprintf("snapshot label: %s", strings.TrimSpace(label)),
 		fmt.Sprintf("since_hours: %d", sinceHours),
 		strings.TrimSpace(snapshot),
 	}
 	return strings.Join(lines, "\n")
-}
-
-func fallbackLabel(label string) string {
-	if strings.TrimSpace(label) == "" {
-		return "snapshot"
-	}
-	return strings.TrimSpace(label)
 }
 
 func firstNonEmptyLine(content string) string {

@@ -40,26 +40,6 @@ type Client struct {
 	turns   map[string]*turnWaiter
 }
 
-type BootstrapState struct {
-	Config map[string]any
-	Skills []SkillEntry
-	Apps   []AppEntry
-}
-
-type SkillEntry struct {
-	CWD    string
-	Errors []map[string]any
-	Skills []map[string]any
-}
-
-type AppEntry struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	Description  string `json:"description"`
-	IsEnabled    bool   `json:"isEnabled"`
-	IsAccessible bool   `json:"isAccessible"`
-}
-
 type ThreadSession struct {
 	ID string
 }
@@ -185,27 +165,8 @@ func (c *Client) Close() error {
 	return nil
 }
 
-func (c *Client) Bootstrap(ctx context.Context) (BootstrapState, error) {
-	if err := c.Start(ctx); err != nil {
-		return BootstrapState{}, err
-	}
-	configSnapshot, err := c.ReadConfig(ctx)
-	if err != nil {
-		return BootstrapState{}, err
-	}
-	skills, err := c.ListSkills(ctx)
-	if err != nil {
-		return BootstrapState{}, err
-	}
-	apps, err := c.ListApps(ctx)
-	if err != nil {
-		c.logger.Warn("apps/list failed", "error", err)
-	}
-	return BootstrapState{
-		Config: configSnapshot,
-		Skills: skills,
-		Apps:   apps,
-	}, nil
+func (c *Client) Bootstrap(ctx context.Context) error {
+	return c.Start(ctx)
 }
 
 func (c *Client) EnsureThread(ctx context.Context, storedID string, baseInstructions string, developerInstructions string) (ThreadSession, error) {
@@ -230,12 +191,6 @@ func (c *Client) EnsureThread(ctx context.Context, storedID string, baseInstruct
 		} `json:"thread"`
 	}
 	params := c.threadStartParams(baseInstructions, developerInstructions)
-	if c.cfg.Codex.Model != "" {
-		params["model"] = c.cfg.Codex.Model
-	}
-	if c.cfg.Codex.ModelProvider != "" {
-		params["modelProvider"] = c.cfg.Codex.ModelProvider
-	}
 	if err := c.call(ctx, "thread/start", params, &response); err != nil {
 		return ThreadSession{}, err
 	}
@@ -287,44 +242,6 @@ func (c *Client) dynamicToolParams() []map[string]any {
 		})
 	}
 	return out
-}
-
-func (c *Client) ReadConfig(ctx context.Context) (map[string]any, error) {
-	var response struct {
-		Config map[string]any `json:"config"`
-	}
-	if err := c.call(ctx, "config/read", map[string]any{
-		"cwd": c.paths.Workspace,
-	}, &response); err != nil {
-		return nil, err
-	}
-	return response.Config, nil
-}
-
-func (c *Client) ListSkills(ctx context.Context) ([]SkillEntry, error) {
-	var response struct {
-		Data []SkillEntry `json:"data"`
-	}
-	if err := c.call(ctx, "skills/list", map[string]any{
-		"cwds":        []string{c.paths.Workspace},
-		"forceReload": true,
-	}, &response); err != nil {
-		return nil, err
-	}
-	return response.Data, nil
-}
-
-func (c *Client) ListApps(ctx context.Context) ([]AppEntry, error) {
-	var response struct {
-		Data []AppEntry `json:"data"`
-	}
-	if err := c.call(ctx, "app/list", map[string]any{
-		"limit":        50,
-		"forceRefetch": false,
-	}, &response); err != nil {
-		return nil, err
-	}
-	return response.Data, nil
 }
 
 func (c *Client) RunTurn(ctx context.Context, threadID string, prompt string) (string, error) {
@@ -452,9 +369,6 @@ func (c *Client) turnParams(threadID string, input []InputItem, outputSchema map
 	}
 	if outputSchema != nil {
 		params["outputSchema"] = outputSchema
-	}
-	if c.cfg.Codex.Model != "" {
-		params["model"] = c.cfg.Codex.Model
 	}
 	params["summary"] = config.DefaultCodexReasoningSummary
 	effort := strings.TrimSpace(opts.Effort)

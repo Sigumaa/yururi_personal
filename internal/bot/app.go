@@ -103,7 +103,7 @@ func (a *App) Bootstrap(ctx context.Context) error {
 	if err := a.syncBotContext(); err != nil {
 		return err
 	}
-	if _, err := a.codex.Bootstrap(ctx); err != nil {
+	if err := a.codex.Bootstrap(ctx); err != nil {
 		a.logger.Warn("codex bootstrap skipped", "error", err)
 	}
 	a.logger.Info("bootstrap ready", "workspace", a.paths.Workspace, "tool_count", len(a.tools.Specs()))

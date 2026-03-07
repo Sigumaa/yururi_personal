@@ -29,9 +29,7 @@ type RuntimeConfig struct {
 }
 
 type CodexConfig struct {
-	Command       string `toml:"command"`
-	Model         string `toml:"model"`
-	ModelProvider string `toml:"model_provider"`
+	Command string `toml:"command"`
 }
 
 type Paths struct {
