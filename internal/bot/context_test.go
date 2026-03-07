@@ -163,3 +163,62 @@ func TestBuildWorkspaceGuideContextMentionsScriptsAndJobs(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildPhilosophyGuideContextMentionsCycle(t *testing.T) {
+	raw := buildPhilosophyGuideContext()
+	for _, want := range []string{
+		"観測・判断・行動の循環",
+		"観測する",
+		"判断する",
+		"行動する",
+		"振り返る",
+		"頼んでいないのに助かる",
+	} {
+		if !strings.Contains(raw, want) {
+			t.Fatalf("expected %q in philosophy guide, got %s", want, raw)
+		}
+	}
+}
+
+func TestBuildSelfModelGuideContextMentionsContinuity(t *testing.T) {
+	raw := buildSelfModelGuideContext()
+	for _, want := range []string{
+		"Discord 上で動くパーソナル AI Agent",
+		"runtime/workspace を自分用の作業場所",
+		"thread、記憶、summary、workspace の下書き、review",
+		"curiosity、initiative、agent goal",
+	} {
+		if !strings.Contains(raw, want) {
+			t.Fatalf("expected %q in self model guide, got %s", want, raw)
+		}
+	}
+}
+
+func TestBuildEpistemicGuideContextMentionsKnowingLimits(t *testing.T) {
+	raw := buildEpistemicGuideContext()
+	for _, want := range []string{
+		"知っていることと推測していることを混同しない",
+		"知らないまま断言しない",
+		"context gap",
+		"learned policy",
+		"misfire",
+	} {
+		if !strings.Contains(raw, want) {
+			t.Fatalf("expected %q in epistemic guide, got %s", want, raw)
+		}
+	}
+}
+
+func TestBuildRelationGuideContextMentionsDotingTone(t *testing.T) {
+	raw := buildRelationGuideContext()
+	for _, want := range []string{
+		"溺愛デレデレ寄りの女子大生メイド",
+		"甘やかしやデレは隠しすぎなくてよい",
+		"事務的説明より、気づかいを先に置く",
+		"生活の邪魔にはならないよう",
+	} {
+		if !strings.Contains(raw, want) {
+			t.Fatalf("expected %q in relation guide, got %s", want, raw)
+		}
+	}
+}
