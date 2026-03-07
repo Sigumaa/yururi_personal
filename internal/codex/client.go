@@ -123,7 +123,7 @@ func (c *Client) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("reserve app-server port: %w", err)
 	}
-	c.wsURL = fmt.Sprintf("ws://%s:%d", c.cfg.Codex.ListenHost, port)
+	c.wsURL = fmt.Sprintf("ws://%s:%d", config.DefaultCodexListenHost, port)
 
 	cmd := exec.CommandContext(ctx, c.cfg.Codex.Command, "app-server", "--listen", c.wsURL)
 	cmd.Dir = c.paths.Workspace
@@ -261,8 +261,8 @@ func (c *Client) DynamicToolSignature() string {
 func (c *Client) threadStartParams(baseInstructions string, developerInstructions string) map[string]any {
 	params := map[string]any{
 		"cwd":                   c.paths.Workspace,
-		"approvalPolicy":        c.cfg.Codex.ApprovalPolicy,
-		"sandbox":               c.cfg.Codex.SandboxMode,
+		"approvalPolicy":        config.DefaultCodexApprovalPolicy,
+		"sandbox":               config.DefaultCodexSandboxMode,
 		"baseInstructions":      baseInstructions,
 		"developerInstructions": developerInstructions,
 		"serviceName":           c.cfg.AppName,
@@ -315,9 +315,6 @@ func (c *Client) ListSkills(ctx context.Context) ([]SkillEntry, error) {
 }
 
 func (c *Client) ListApps(ctx context.Context) ([]AppEntry, error) {
-	if !c.cfg.Codex.EnableApps {
-		return nil, nil
-	}
 	var response struct {
 		Data []AppEntry `json:"data"`
 	}
@@ -448,7 +445,7 @@ func (c *Client) turnParams(threadID string, input []InputItem, outputSchema map
 	params := map[string]any{
 		"threadId":       threadID,
 		"input":          input,
-		"approvalPolicy": c.cfg.Codex.ApprovalPolicy,
+		"approvalPolicy": config.DefaultCodexApprovalPolicy,
 		"sandboxPolicy": map[string]any{
 			"type": "dangerFullAccess",
 		},
@@ -459,12 +456,10 @@ func (c *Client) turnParams(threadID string, input []InputItem, outputSchema map
 	if c.cfg.Codex.Model != "" {
 		params["model"] = c.cfg.Codex.Model
 	}
-	if c.cfg.Codex.ReasoningSummary != "" {
-		params["summary"] = c.cfg.Codex.ReasoningSummary
-	}
+	params["summary"] = config.DefaultCodexReasoningSummary
 	effort := strings.TrimSpace(opts.Effort)
 	if effort == "" {
-		effort = c.cfg.Codex.ReasoningEffort
+		effort = config.DefaultCodexReasoningEffort
 	}
 	if effort != "" {
 		params["effort"] = effort

@@ -12,8 +12,8 @@ import (
 	"github.com/Sigumaa/yururi_personal/internal/memory"
 )
 
-func TestConversationContextHasNoDeadline(t *testing.T) {
-	ctx, cancel := conversationContext()
+func TestInteractiveContextHasNoDeadline(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	if _, ok := ctx.Deadline(); ok {

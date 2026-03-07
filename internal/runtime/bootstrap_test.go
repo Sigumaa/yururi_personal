@@ -14,10 +14,6 @@ func TestEnsureLayoutCreatesManagedFiles(t *testing.T) {
 		Runtime: config.RuntimeConfig{
 			Root: t.TempDir(),
 		},
-		Codex: config.CodexConfig{
-			ApprovalPolicy: "never",
-			SandboxMode:    "danger-full-access",
-		},
 	}
 
 	paths, err := EnsureLayout(cfg)
@@ -66,10 +62,6 @@ func TestEnsureLayoutRemovesLegacyAnyDir(t *testing.T) {
 	cfg := config.Config{
 		Runtime: config.RuntimeConfig{
 			Root: root,
-		},
-		Codex: config.CodexConfig{
-			ApprovalPolicy: "never",
-			SandboxMode:    "danger-full-access",
 		},
 	}
 

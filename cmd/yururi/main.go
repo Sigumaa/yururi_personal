@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -75,6 +74,6 @@ func run() error {
 		defer stop()
 		return app.Run(ctx)
 	default:
-		return errors.New(fmt.Sprintf("unknown command: %s", command))
+		return fmt.Errorf("unknown command: %s", command)
 	}
 }

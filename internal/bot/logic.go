@@ -3,10 +3,10 @@ package bot
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"slices"
 	"strings"
 	"time"
 
@@ -212,7 +212,7 @@ func (a *App) runSummaryJob(ctx context.Context, job jobs.Job, period string, st
 
 func (a *App) summarizeMessages(ctx context.Context, threadID string, period string, start time.Time, end time.Time, messages []memory.Message) (string, error) {
 	if threadID == "" {
-		return fallbackSummary(period, start, end, messages), nil
+		return "", fmt.Errorf("summary thread is required")
 	}
 
 	schema := map[string]any{
@@ -240,45 +240,20 @@ messages:
 
 	raw, err := a.runThreadJSONTurn(ctx, threadID, prompt, schema)
 	if err != nil {
-		a.logger.Warn("summary codex turn failed; using fallback summary", "period", period, "error", err)
-		return fallbackSummary(period, start, end, messages), nil
+		return "", err
 	}
 	a.logger.Debug("summary codex output", "period", period, "raw_preview", previewText(raw, 800))
 	var response struct {
 		Summary string `json:"summary"`
 	}
 	if parseErr := json.Unmarshal([]byte(raw), &response); parseErr != nil || strings.TrimSpace(response.Summary) == "" {
-		a.logger.Warn("summary codex output invalid; using fallback summary", "period", period, "error", parseErr)
-		return fallbackSummary(period, start, end, messages), nil
+		if parseErr != nil {
+			return "", fmt.Errorf("parse summary output: %w", parseErr)
+		}
+		return "", errors.New("summary output is empty")
 	}
 	a.logger.Debug("summary final text", "period", period, "summary_preview", previewText(response.Summary, 800))
 	return response.Summary, nil
-}
-
-func fallbackSummary(period string, start time.Time, end time.Time, messages []memory.Message) string {
-	lines := []string{fmt.Sprintf("%s のまとめをそっと置いておきますね。", period)}
-	seenChannels := map[string]int{}
-	for _, msg := range messages {
-		seenChannels[msg.ChannelName]++
-	}
-	var channels []string
-	for channel, count := range seenChannels {
-		channels = append(channels, fmt.Sprintf("%s %d件", channel, count))
-	}
-	slices.Sort(channels)
-	lines = append(lines, fmt.Sprintf("期間は %s から %s までです。", start.Format("01/02 15:04"), end.Format("01/02 15:04")))
-	lines = append(lines, "動きがあった場所は "+strings.Join(channels, ", ")+" でした。")
-	for _, msg := range tailMessages(messages, 5) {
-		lines = append(lines, fmt.Sprintf("- [%s] %s", msg.ChannelName, msg.Content))
-	}
-	return strings.Join(lines, "\n")
-}
-
-func tailMessages(messages []memory.Message, n int) []memory.Message {
-	if len(messages) <= n {
-		return messages
-	}
-	return messages[len(messages)-n:]
 }
 
 type githubRelease struct {

@@ -74,10 +74,6 @@ func testRuntimeConfig(root string) config.Config {
 		Runtime: config.RuntimeConfig{
 			Root: root,
 		},
-		Codex: config.CodexConfig{
-			ApprovalPolicy: "never",
-			SandboxMode:    "danger-full-access",
-		},
 	}
 }
 

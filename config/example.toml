@@ -11,11 +11,5 @@ root = "./runtime"
 
 [codex]
 command = "codex"
-listen_host = "127.0.0.1"
 model = ""
 model_provider = ""
-approval_policy = "never"
-sandbox_mode = "danger-full-access"
-reasoning_effort = "medium"
-reasoning_summary = "concise"
-enable_apps = true

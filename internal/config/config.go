@@ -29,15 +29,9 @@ type RuntimeConfig struct {
 }
 
 type CodexConfig struct {
-	Command          string `toml:"command"`
-	ListenHost       string `toml:"listen_host"`
-	Model            string `toml:"model"`
-	ModelProvider    string `toml:"model_provider"`
-	ApprovalPolicy   string `toml:"approval_policy"`
-	SandboxMode      string `toml:"sandbox_mode"`
-	ReasoningEffort  string `toml:"reasoning_effort"`
-	ReasoningSummary string `toml:"reasoning_summary"`
-	EnableApps       bool   `toml:"enable_apps"`
+	Command       string `toml:"command"`
+	Model         string `toml:"model"`
+	ModelProvider string `toml:"model_provider"`
 }
 
 type Paths struct {
@@ -110,16 +104,19 @@ func defaultConfig() Config {
 			Root: "./runtime",
 		},
 		Codex: CodexConfig{
-			Command:          "codex",
-			ListenHost:       "127.0.0.1",
-			ApprovalPolicy:   "never",
-			SandboxMode:      "danger-full-access",
-			ReasoningEffort:  "medium",
-			ReasoningSummary: "concise",
-			EnableApps:       true,
+			Command: DefaultCodexCommand,
 		},
 	}
 }
+
+const (
+	DefaultCodexCommand          = "codex"
+	DefaultCodexListenHost       = "127.0.0.1"
+	DefaultCodexApprovalPolicy   = "never"
+	DefaultCodexSandboxMode      = "danger-full-access"
+	DefaultCodexReasoningEffort  = "medium"
+	DefaultCodexReasoningSummary = "concise"
+)
 
 func overrideFromEnv(cfg *Config) {
 	if v := os.Getenv("YURURI_APP_NAME"); v != "" {

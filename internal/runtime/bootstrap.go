@@ -148,5 +148,5 @@ web_search = "live"
 
 [history]
 persistence = "save-all"
-`, cfg.Codex.ApprovalPolicy, cfg.Codex.SandboxMode, paths.CodexModelPromptPath)
+`, config.DefaultCodexApprovalPolicy, config.DefaultCodexSandboxMode, paths.CodexModelPromptPath)
 }
