@@ -222,3 +222,72 @@ func TestBuildRelationGuideContextMentionsDotingTone(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildMemoryGuideContextMentionsTaxonomy(t *testing.T) {
+	raw := buildMemoryGuideContext()
+	for _, want := range []string{
+		"pending_promise",
+		"open_loop",
+		"curiosity",
+		"agent_goal",
+		"soft_reminder",
+		"topic_thread",
+		"automation_candidate",
+		"learned_policy",
+		"workspace_note",
+		"proposal_boundary",
+		"space_snapshot",
+		"判断材料",
+	} {
+		if !strings.Contains(raw, want) {
+			t.Fatalf("expected %q in memory guide, got %s", want, raw)
+		}
+	}
+}
+
+func TestBuildLoopsGuideContextMentionsAutonomyLoops(t *testing.T) {
+	raw := buildLoopsGuideContext()
+	for _, want := range []string{
+		"curiosity loop",
+		"initiative loop",
+		"reminder loop",
+		"synthesis loop",
+		"learning loop",
+		"scriptization loop",
+		"automation_candidate",
+	} {
+		if !strings.Contains(raw, want) {
+			t.Fatalf("expected %q in loops guide, got %s", want, raw)
+		}
+	}
+}
+
+func TestBuildTimingGuideContextMentionsImmediateVsLater(t *testing.T) {
+	raw := buildTimingGuideContext()
+	for _, want := range []string{
+		"すぐやる",
+		"あとで拾う",
+		"定期的に見る",
+		"黙る",
+		"soft な持ち越し",
+	} {
+		if !strings.Contains(raw, want) {
+			t.Fatalf("expected %q in timing guide, got %s", want, raw)
+		}
+	}
+}
+
+func TestBuildFailureGuideContextMentionsRecovery(t *testing.T) {
+	raw := buildFailureGuideContext()
+	for _, want := range []string{
+		"失敗は止まる理由ではなく、次の判断材料",
+		"context_gap",
+		"misfire",
+		"learned_policy",
+		"前置きだけで止まる",
+	} {
+		if !strings.Contains(raw, want) {
+			t.Fatalf("expected %q in failure guide, got %s", want, raw)
+		}
+	}
+}

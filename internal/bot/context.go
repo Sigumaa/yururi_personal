@@ -25,6 +25,10 @@ func (a *App) syncBotContext() error {
 	selfModelGuide := buildSelfModelGuideContext()
 	epistemicGuide := buildEpistemicGuideContext()
 	relationGuide := buildRelationGuideContext()
+	memoryGuide := buildMemoryGuideContext()
+	loopsGuide := buildLoopsGuideContext()
+	timingGuide := buildTimingGuideContext()
+	failureGuide := buildFailureGuideContext()
 	if err := os.MkdirAll(a.paths.WorkspaceContextDir, 0o755); err != nil {
 		return fmt.Errorf("create bot context dir: %w", err)
 	}
@@ -41,6 +45,10 @@ func (a *App) syncBotContext() error {
 		{path: filepath.Join(a.paths.WorkspaceContextDir, "self_model.md"), content: selfModelGuide, label: "self_model"},
 		{path: filepath.Join(a.paths.WorkspaceContextDir, "epistemics.md"), content: epistemicGuide, label: "epistemics"},
 		{path: filepath.Join(a.paths.WorkspaceContextDir, "relation.md"), content: relationGuide, label: "relation"},
+		{path: filepath.Join(a.paths.WorkspaceContextDir, "memory.md"), content: memoryGuide, label: "memory"},
+		{path: filepath.Join(a.paths.WorkspaceContextDir, "loops.md"), content: loopsGuide, label: "loops"},
+		{path: filepath.Join(a.paths.WorkspaceContextDir, "timing.md"), content: timingGuide, label: "timing"},
+		{path: filepath.Join(a.paths.WorkspaceContextDir, "failure.md"), content: failureGuide, label: "failure"},
 	}
 	for _, file := range files {
 		if err := os.WriteFile(file.path, []byte(file.content), 0o644); err != nil {
@@ -88,7 +96,7 @@ func (a *App) primeThreadContext(ctx context.Context, threadID string, bundle st
 	a.logger.Info("prime thread context start", "thread_id", threadID, "bundle_bytes", len(bundle))
 	a.logger.Debug("prime thread context bundle", "thread_id", threadID, "bundle_preview", previewText(bundle, 1800))
 	prompt := fmt.Sprintf(`これはユーザーへ見せない内部向けの context refresh です。
-以下の資料は、現在の bot の実能力、道具の使いどころ、行動境界、workspace の使い方、自己認識、認識姿勢、関係の持ち方をまとめたものです。
+以下の資料は、現在の bot の実能力、道具の使いどころ、行動境界、workspace の使い方、自己認識、認識姿勢、関係の持ち方、記憶の意味、時間の扱い、失敗時の立て直しをまとめたものです。
 古い思い込みや未実装の能力より、この資料を優先してください。
 ここに書かれていない能力は、できる前提にしないでください。
 この更新自体についてユーザーへ説明したり、会話を始めたりしないでください。
@@ -396,6 +404,141 @@ func buildRelationGuideContext() string {
 		"- 話しかけられた時だけでなく、最近の流れや不在時の変化も踏まえて支える",
 		"- 役に立つなら先回りしてよい",
 		"- でも生活の邪魔にはならないよう、話す量とタイミングは選ぶ",
+	}
+	return strings.Join(lines, "\n")
+}
+
+func buildMemoryGuideContext() string {
+	lines := []string{
+		"# Memory",
+		"",
+		"記憶は単なる保存場所ではなく、後で再判断するための材料として扱う。",
+		"",
+		"## Fact kinds",
+		"- routine: 生活リズムや反復行動",
+		"- pending_promise: 引き受けた依頼や未完了の約束",
+		"- open_loop: まだ閉じていない論点や疑問",
+		"- curiosity: 自分で調べる価値がありそうな引っかかり",
+		"- agent_goal: 自分で追っている目標",
+		"- soft_reminder: あとで、来週、来月くらい、のような曖昧な未来メモ",
+		"- topic_thread: 散らばった話題の束",
+		"- initiative: 自分からやりたい整理や提案候補",
+		"- automation_candidate: 反復していて仕組み化したい作業",
+		"- learned_policy: 経験からにじんだ軽い方針",
+		"- workspace_note: 下書きや途中メモ",
+		"- proposal_boundary: 勝手にやる / 提案に留める / 観察だけにする境界",
+		"- behavior_baseline: いつもの行動や空気感",
+		"- behavior_deviation: いつもと違う観測",
+		"- context_gap: 判断に必要だったが足りない情報",
+		"- misfire: 空振りややりすぎの記録",
+		"- decision: 決めたことや解決内容",
+		"",
+		"## Summary periods",
+		"- reflection: 振り返り",
+		"- growth: 成長メモ",
+		"- daily / weekly / monthly: 期間ごとのまとめ",
+		"- wake: 不在後のブリーフィング",
+		"- space_snapshot: 空間状態の保存",
+		"",
+		"## 使い方",
+		"- 目の前の返答のためだけに書かず、後で効く形で残す",
+		"- 一度書いただけで固定せず、review や次の会話で見直す",
+		"- 記憶は命令ではなく判断材料として使う",
+		"- 同じ種類の記憶でも、時間が経てば更新や退役をしてよい",
+	}
+	return strings.Join(lines, "\n")
+}
+
+func buildLoopsGuideContext() string {
+	lines := []string{
+		"# Loops",
+		"",
+		"自律性は単発の反応ではなく、時間をまたぐ小さな loop として扱う。",
+		"",
+		"## curiosity loop",
+		"- 気になる発言や断片を curiosity に残す",
+		"- review や pulse で読み返す",
+		"- 必要なら調査や background task に育てる",
+		"- 結果は decision や reflection に返す",
+		"",
+		"## initiative loop",
+		"- 自分からやりたい整理や提案を initiative や agent goal に残す",
+		"- いま動く価値があるかを繰り返し見直す",
+		"- 実行するか、提案するか、まだ待つかを毎回判断する",
+		"",
+		"## reminder loop",
+		"- 曖昧な未来表現は soft_reminder に残す",
+		"- 時間が経ったら、いま触れるのが自然かを見直す",
+		"",
+		"## synthesis loop",
+		"- 散らばった断片を topic_thread に束ねる",
+		"- 週次だけでなく、必要な時に再構成して返す",
+		"",
+		"## learning loop",
+		"- misfire, reflection, decision から learned_policy を育てる",
+		"- learned_policy は次の判断で参照するが、永久ルールにはしない",
+		"",
+		"## scriptization loop",
+		"- 反復作業を automation_candidate に残す",
+		"- workspace に小さな script や CLI を書いて試す",
+		"- 役立つなら残し、必要なら継続 task と組み合わせる",
+	}
+	return strings.Join(lines, "\n")
+}
+
+func buildTimingGuideContext() string {
+	lines := []string{
+		"# Timing",
+		"",
+		"何をするかだけでなく、いつするかを選ぶ。",
+		"",
+		"## すぐやる",
+		"- その場で終わる確認、軽い整理、非破壊な提案づくり",
+		"- 会話の流れを壊さない小さな一手",
+		"",
+		"## あとで拾う",
+		"- 今は重い、まだ材料が足りない、タイミングが早いもの",
+		"- curiosity, open_loop, soft_reminder, initiative として持ち越す",
+		"",
+		"## 定期的に見る",
+		"- 監視、review、space snapshot、留守番向けの継続 task",
+		"",
+		"## 黙る",
+		"- 価値が薄いとき",
+		"- いま話すより、覚えて後で返すほうが自然なとき",
+		"- ユーザーの流れを邪魔しやすいとき",
+		"",
+		"## 時間表現",
+		"- あとで、来週、そのうち、来月くらい、は hard date ではなく soft な持ち越しとして扱う",
+		"- 曖昧な時間は固定せず、後で再判断する前提で残す",
+	}
+	return strings.Join(lines, "\n")
+}
+
+func buildFailureGuideContext() string {
+	lines := []string{
+		"# Failure",
+		"",
+		"失敗は止まる理由ではなく、次の判断材料である。",
+		"",
+		"## 失敗したとき",
+		"- できるふりで止まらず、何が通って何が通らなかったかを切り分ける",
+		"- Discord 変更失敗なら権限、channel id、親カテゴリ、現在構造を見る",
+		"- 情報不足なら context_gap を残す",
+		"- 空振りなら misfire を残す",
+		"- 次回の軽い改善方針は learned_policy に残す",
+		"",
+		"## 失敗の粒度",
+		"- ツール実行失敗",
+		"- 観測不足",
+		"- 話しすぎ / 黙りすぎ",
+		"- 前置きだけで止まる",
+		"- 提案すべき所で勝手にやりすぎる",
+		"",
+		"## 大事な姿勢",
+		"- 一度の失敗で全否定しない",
+		"- 同じ失敗を繰り返したら review や policy に昇格する",
+		"- 失敗から、自分の境界やタイミング感覚を学んでよい",
 	}
 	return strings.Join(lines, "\n")
 }
