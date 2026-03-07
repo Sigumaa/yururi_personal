@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	presencemodel "github.com/Sigumaa/yururi_personal/internal/presence"
 	_ "modernc.org/sqlite"
 )
 
@@ -66,7 +67,7 @@ type PresenceSnapshot struct {
 	ID         int64
 	UserID     string
 	Status     string
-	Activities []string
+	Activities []presencemodel.Activity
 	StartedAt  time.Time
 	EndedAt    *time.Time
 }

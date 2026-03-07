@@ -3,9 +3,11 @@ package bot
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Sigumaa/yururi_personal/internal/jobs"
 	"github.com/Sigumaa/yururi_personal/internal/memory"
+	presencemodel "github.com/Sigumaa/yururi_personal/internal/presence"
 )
 
 func TestInstructionsMentionPersonaAndContextDocs(t *testing.T) {
@@ -148,10 +150,12 @@ func TestConversationPromptAllowsDirectToolsAndMultiReplies(t *testing.T) {
 }
 
 func TestAutonomyPulsePromptAllowsSilenceAndAction(t *testing.T) {
+	start := time.Date(2026, 3, 8, 1, 2, 3, 0, time.UTC)
+	end := start.Add(5 * time.Minute)
 	prompt := buildAutonomyPulsePrompt(
 		"c-1",
 		"general",
-		memory.PresenceSnapshot{Status: "online", Activities: []string{"Factorio"}},
+		memory.PresenceSnapshot{Status: "online", Activities: []presencemodel.Activity{{Name: "Spotify", Type: "listening", Details: "Blue Train", State: "John Coltrane", StartAt: &start, EndAt: &end}}},
 		[]memory.ChannelActivity{{ChannelID: "c-1", ChannelName: "general", MessageCount: 12}},
 		nil,
 		[]memory.Message{{ChannelName: "general", Content: "open loop を拾ってほしい"}},
@@ -177,7 +181,7 @@ func TestAutonomyPulsePromptAllowsSilenceAndAction(t *testing.T) {
 	if !strings.Contains(prompt, noReplyToken) {
 		t.Fatalf("expected no-reply token, got %s", prompt)
 	}
-	if !strings.Contains(prompt, "Factorio") {
+	if !strings.Contains(prompt, "Blue Train") || !strings.Contains(prompt, "John Coltrane") {
 		t.Fatalf("expected presence activity, got %s", prompt)
 	}
 	if !strings.Contains(prompt, "少しでも価値があるなら自分から動いてよい") {

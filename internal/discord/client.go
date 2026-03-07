@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	presencemodel "github.com/Sigumaa/yururi_personal/internal/presence"
 	"github.com/bwmarrin/discordgo"
 )
 
@@ -63,7 +64,7 @@ type Message struct {
 type Presence struct {
 	UserID     string
 	Status     string
-	Activities []string
+	Activities []presencemodel.Activity
 }
 
 type PermissionSnapshot struct {
@@ -248,26 +249,70 @@ func (c *Client) ListChannels(ctx context.Context, guildID string) ([]Channel, e
 func (c *Client) CurrentPresence(ctx context.Context, guildID string, userID string) (Presence, error) {
 	presence, err := c.session.State.Presence(guildID, userID)
 	if err != nil {
-		member, memberErr := c.session.GuildMember(guildID, userID)
-		if memberErr != nil {
-			return Presence{}, wrapDiscordError("presence lookup", err)
-		}
 		return Presence{
-			UserID: userID,
-			Status: string(discordgo.StatusOffline),
-			Activities: []string{
-				member.User.Username,
-			},
+			UserID:     userID,
+			Status:     string(discordgo.StatusOffline),
+			Activities: nil,
 		}, nil
 	}
 	out := Presence{
 		UserID: userID,
 		Status: string(presence.Status),
 	}
-	for _, activity := range presence.Activities {
-		out.Activities = append(out.Activities, activity.Name)
-	}
+	out.Activities = ActivitiesFromGateway(presence.Activities)
 	return out, nil
+}
+
+func ActivitiesFromGateway(items []*discordgo.Activity) []presencemodel.Activity {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]presencemodel.Activity, 0, len(items))
+	for _, item := range items {
+		if item == nil {
+			continue
+		}
+		out = append(out, presencemodel.Activity{
+			Name:          strings.TrimSpace(item.Name),
+			Type:          activityTypeName(item.Type),
+			URL:           strings.TrimSpace(item.URL),
+			ApplicationID: strings.TrimSpace(item.ApplicationID),
+			State:         strings.TrimSpace(item.State),
+			Details:       strings.TrimSpace(item.Details),
+			LargeText:     strings.TrimSpace(item.Assets.LargeText),
+			SmallText:     strings.TrimSpace(item.Assets.SmallText),
+			StartAt:       toActivityTime(item.Timestamps.StartTimestamp),
+			EndAt:         toActivityTime(item.Timestamps.EndTimestamp),
+		})
+	}
+	return out
+}
+
+func activityTypeName(kind discordgo.ActivityType) string {
+	switch kind {
+	case discordgo.ActivityTypeGame:
+		return "playing"
+	case discordgo.ActivityTypeStreaming:
+		return "streaming"
+	case discordgo.ActivityTypeListening:
+		return "listening"
+	case discordgo.ActivityTypeWatching:
+		return "watching"
+	case discordgo.ActivityTypeCustom:
+		return "custom"
+	case discordgo.ActivityTypeCompeting:
+		return "competing"
+	default:
+		return fmt.Sprintf("type_%d", kind)
+	}
+}
+
+func toActivityTime(ms int64) *time.Time {
+	if ms <= 0 {
+		return nil
+	}
+	t := time.UnixMilli(ms).UTC()
+	return &t
 }
 
 func (c *Client) SelfChannelPermissions(ctx context.Context, channelID string) (PermissionSnapshot, error) {

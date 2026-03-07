@@ -9,6 +9,7 @@ import (
 
 	"github.com/Sigumaa/yururi_personal/internal/codex"
 	discordsvc "github.com/Sigumaa/yururi_personal/internal/discord"
+	presencemodel "github.com/Sigumaa/yururi_personal/internal/presence"
 )
 
 func (a *App) registerCoreDiscordTools(registry *codex.ToolRegistry) {
@@ -66,7 +67,7 @@ func (a *App) registerCoreDiscordTools(registry *codex.ToolRegistry) {
 
 	registry.Register(codex.ToolSpec{
 		Name:        "discord.get_member_presence",
-		Description: "ユーザーの現在の presence と activity を取得する",
+		Description: "ユーザーの現在の presence と activity 詳細を取得する。Spotify などは曲名や状態も含めて返す",
 		InputSchema: objectSchema(fieldSchema("user_id", "string", "対象ユーザー ID")),
 	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
 		if a.discord == nil {
@@ -80,7 +81,11 @@ func (a *App) registerCoreDiscordTools(registry *codex.ToolRegistry) {
 		if err != nil {
 			return codex.ToolResponse{}, err
 		}
-		return textTool(fmt.Sprintf("status=%s activities=%s", presence.Status, strings.Join(presence.Activities, ", "))), nil
+		return textTool(fmt.Sprintf("status=%s\nactivities:\n%s\nactivity_summaries=%s",
+			presence.Status,
+			presencemodel.DescribeList(presence.Activities),
+			strings.Join(presencemodel.SummaryList(presence.Activities), " | "),
+		)), nil
 	})
 
 	registry.Register(codex.ToolSpec{

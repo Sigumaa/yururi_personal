@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Sigumaa/yururi_personal/internal/jobs"
+	presencemodel "github.com/Sigumaa/yururi_personal/internal/presence"
 )
 
 func TestStoreMessageFactAndJobLifecycle(t *testing.T) {
@@ -262,6 +263,50 @@ func TestListChannelProfiles(t *testing.T) {
 	}
 	if len(profiles) != 1 || profiles[0].ChannelID != "c1" {
 		t.Fatalf("unexpected profiles: %#v", profiles)
+	}
+}
+
+func TestSaveAndLoadPresenceSnapshotWithRichActivities(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "yururi.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	start := time.Date(2026, 3, 8, 1, 2, 3, 0, time.UTC)
+	end := start.Add(4 * time.Minute)
+	if err := store.SavePresence(ctx, PresenceSnapshot{
+		UserID: "owner",
+		Status: "online",
+		Activities: []presencemodel.Activity{
+			{
+				Name:      "Spotify",
+				Type:      "listening",
+				Details:   "Blue Train",
+				State:     "John Coltrane",
+				LargeText: "Blue Train",
+				StartAt:   &start,
+				EndAt:     &end,
+			},
+		},
+		StartedAt: start,
+	}); err != nil {
+		t.Fatalf("save presence: %v", err)
+	}
+
+	got, ok, err := store.LastPresence(ctx, "owner")
+	if err != nil {
+		t.Fatalf("last presence: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected presence snapshot")
+	}
+	if len(got.Activities) != 1 || got.Activities[0].Details != "Blue Train" || got.Activities[0].State != "John Coltrane" {
+		t.Fatalf("unexpected activities: %#v", got.Activities)
+	}
+	if got.Activities[0].StartAt == nil || got.Activities[0].EndAt == nil {
+		t.Fatalf("expected activity timestamps, got %#v", got.Activities[0])
 	}
 }
 

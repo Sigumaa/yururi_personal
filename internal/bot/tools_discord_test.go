@@ -15,6 +15,7 @@ import (
 	"github.com/Sigumaa/yururi_personal/internal/config"
 	discordsvc "github.com/Sigumaa/yururi_personal/internal/discord"
 	"github.com/Sigumaa/yururi_personal/internal/memory"
+	presencemodel "github.com/Sigumaa/yururi_personal/internal/presence"
 	"github.com/bwmarrin/discordgo"
 )
 
@@ -119,7 +120,23 @@ func (d *discordToolsStub) ListChannels(context.Context, string) ([]discordsvc.C
 	return out, nil
 }
 func (d *discordToolsStub) CurrentPresence(context.Context, string, string) (discordsvc.Presence, error) {
-	return discordsvc.Presence{}, nil
+	start := time.Date(2026, 3, 8, 1, 2, 3, 0, time.UTC)
+	end := start.Add(3 * time.Minute)
+	return discordsvc.Presence{
+		UserID: "owner",
+		Status: "online",
+		Activities: []presencemodel.Activity{
+			{
+				Name:      "Spotify",
+				Type:      "listening",
+				Details:   "Blue Train",
+				State:     "John Coltrane",
+				LargeText: "Blue Train",
+				StartAt:   &start,
+				EndAt:     &end,
+			},
+		},
+	}, nil
 }
 func (d *discordToolsStub) SelfChannelPermissions(context.Context, string) (discordsvc.PermissionSnapshot, error) {
 	return discordsvc.PermissionSnapshot{}, nil
@@ -209,5 +226,29 @@ func TestDiscordEnsureSpaceArchiveAndIdleTools(t *testing.T) {
 	}
 	if !strings.Contains(response.ContentItems[0].Text, "notes") {
 		t.Fatalf("expected idle notes channel, got %#v", response.ContentItems[0])
+	}
+}
+
+func TestDiscordGetMemberPresenceIncludesRichDetails(t *testing.T) {
+	discord := newDiscordToolsStub()
+	registry := codex.NewToolRegistry()
+	app := &App{
+		cfg:     config.Config{Discord: config.DiscordConfig{GuildID: "g-1"}},
+		logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
+		discord: discord,
+	}
+	app.registerCoreDiscordTools(registry)
+
+	response, err := registry.Call(context.Background(), "discord.get_member_presence", mustJSONRaw(t, map[string]any{
+		"user_id": "owner",
+	}))
+	if err != nil {
+		t.Fatalf("get_member_presence: %v", err)
+	}
+	text := response.ContentItems[0].Text
+	for _, want := range []string{"status=online", "type=listening", "name=Spotify", "details=Blue Train", "state=John Coltrane", "activity_summaries=listening / Spotify (Blue Train - John Coltrane)"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("expected %q in presence output, got %s", want, text)
+		}
 	}
 }

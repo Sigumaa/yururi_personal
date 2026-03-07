@@ -6,8 +6,10 @@ import (
 	"time"
 
 	"github.com/Sigumaa/yururi_personal/internal/codex"
+	discordsvc "github.com/Sigumaa/yururi_personal/internal/discord"
 	"github.com/Sigumaa/yururi_personal/internal/jobs"
 	"github.com/Sigumaa/yururi_personal/internal/memory"
+	presencemodel "github.com/Sigumaa/yururi_personal/internal/presence"
 	"github.com/bwmarrin/discordgo"
 )
 
@@ -118,22 +120,17 @@ func (a *App) processPresence(event *discordgo.PresenceUpdate) {
 		a.logger.Warn("load last presence failed", "error", err)
 	}
 
-	activities := make([]string, 0, len(event.Activities))
-	for _, activity := range event.Activities {
-		activities = append(activities, activity.Name)
-	}
-
 	now := time.Now().UTC()
 	current := memory.PresenceSnapshot{
 		UserID:     event.User.ID,
 		Status:     string(event.Status),
-		Activities: activities,
+		Activities: discordsvc.ActivitiesFromGateway(event.Activities),
 		StartedAt:  now,
 	}
 	if err := a.store.SavePresence(ctx, current); err != nil {
 		a.logger.Warn("save presence failed", "error", err)
 	}
-	a.logger.Info("presence updated", "status", current.Status, "activities", strings.Join(current.Activities, ","))
+	a.logger.Info("presence updated", "status", current.Status, "activities", strings.Join(presencemodel.SummaryList(current.Activities), ","))
 
 	if ok && isOffline(previous.Status) && !isOffline(current.Status) && now.Sub(previous.StartedAt) >= defaultWakeSummaryThreshold {
 		channelID, found, err := a.store.LatestChannelIDForAuthor(ctx, a.cfg.Discord.OwnerUserID)

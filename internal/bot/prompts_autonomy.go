@@ -7,6 +7,7 @@ import (
 
 	"github.com/Sigumaa/yururi_personal/internal/memory"
 	"github.com/Sigumaa/yururi_personal/internal/persona"
+	presencemodel "github.com/Sigumaa/yururi_personal/internal/presence"
 )
 
 func buildAutonomyPulsePrompt(targetChannelID string, targetChannelName string, latestPresence memory.PresenceSnapshot, recentActivity []memory.ChannelActivity, summaries []memory.Summary, ownerMessages []memory.Message, openLoops []memory.Fact, curiosities []memory.Fact, goals []memory.Fact, reminders []memory.Fact, topics []memory.Fact, initiatives []memory.Fact, automationCandidates []memory.Fact, contextGaps []memory.Fact, misfires []memory.Fact, baselines []memory.Fact, deviations []memory.Fact, learnedPolicies []memory.Fact, workspaceNotes []memory.Fact, proposalBoundaries []memory.Fact, reflections []memory.Summary, growth []memory.Summary, decisions []memory.Fact) string {
@@ -194,7 +195,8 @@ best target channel:
 
 latest owner presence:
 - status: %s
-- activities: %s
+- activities:
+%s
 - started_at: %s
 
 recent channel activity:
@@ -263,7 +265,7 @@ recent decisions:
 		targetChannelID,
 		targetChannelName,
 		latestPresence.Status,
-		strings.Join(latestPresence.Activities, ", "),
+		indentLines(presencemodel.DescribeList(latestPresence.Activities), 2),
 		latestPresence.StartedAt.Format(time.RFC3339),
 		strings.Join(activityLines, "\n"),
 		strings.Join(summaryLines, "\n"),
@@ -286,4 +288,13 @@ recent decisions:
 		strings.Join(growthLines, "\n"),
 		strings.Join(decisionLines, "\n"),
 	)
+}
+
+func indentLines(value string, spaces int) string {
+	prefix := strings.Repeat(" ", spaces)
+	lines := strings.Split(value, "\n")
+	for i := range lines {
+		lines[i] = prefix + lines[i]
+	}
+	return strings.Join(lines, "\n")
 }
