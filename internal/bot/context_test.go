@@ -97,3 +97,69 @@ func TestBuildCapabilitiesContextListsRealCapabilities(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildToolGuideContextMentionsAffordances(t *testing.T) {
+	raw := buildToolGuideContext([]codex.ToolSpec{
+		{Name: "discord.list_channels", Description: "サーバー内のチャンネル一覧を取得する", InputSchema: map[string]any{}},
+		{Name: "discord.create_channel", Description: "テキストチャンネルを作成する", InputSchema: map[string]any{}},
+		{Name: "memory.write_fact", Description: "長期記憶を保存する", InputSchema: map[string]any{}},
+		{Name: "jobs.schedule", Description: "job を登録または更新する", InputSchema: map[string]any{}},
+		{Name: "web.fetch_url", Description: "URL を取得して読む", InputSchema: map[string]any{}},
+		{Name: "tools.search", Description: "使えそうな tool を探す", InputSchema: map[string]any{}},
+	})
+
+	for _, want := range []string{
+		"どういう場面で使うと自然か",
+		"依頼理解 -> Discord 観測 -> 必要なら記憶参照 -> 実行 -> 結果共有",
+		"反復依頼 -> runtime/workspace に補助 script",
+		"Command / File Change",
+		"Discord 観測",
+		"Discord 編集",
+		"記憶",
+		"継続 task",
+		"Web / Media",
+		"Tool 補助",
+		"`discord__list_channels`",
+		"`discord__create_channel`",
+		"`memory__write_fact`",
+		"`jobs__schedule`",
+		"`web__fetch_url`",
+		"`tools__search`",
+	} {
+		if !strings.Contains(raw, want) {
+			t.Fatalf("expected %q in tool guide, got %s", want, raw)
+		}
+	}
+}
+
+func TestBuildAutonomyGuideContextMentionsDecisionBoundaries(t *testing.T) {
+	raw := buildAutonomyGuideContext()
+	for _, want := range []string{
+		"観測して、判断して、必要なときだけ動く",
+		"勝手にやってよい寄り",
+		"提案止まりにしやすいもの",
+		"学習へのつなぎ方",
+		"initiative",
+		"learned policy",
+		"proposal boundary",
+	} {
+		if !strings.Contains(raw, want) {
+			t.Fatalf("expected %q in autonomy guide, got %s", want, raw)
+		}
+	}
+}
+
+func TestBuildWorkspaceGuideContextMentionsScriptsAndJobs(t *testing.T) {
+	raw := buildWorkspaceGuideContext()
+	for _, want := range []string{
+		"runtime/workspace は、ゆるり自身の作業場所",
+		"補助 script",
+		"小さな CLI",
+		"まず小さく書いて試す",
+		"時間をまたぐ監視や留守番は jobs と組み合わせる",
+	} {
+		if !strings.Contains(raw, want) {
+			t.Fatalf("expected %q in workspace guide, got %s", want, raw)
+		}
+	}
+}

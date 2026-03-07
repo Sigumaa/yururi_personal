@@ -18,11 +18,26 @@ const botContextHashKey = "codex.bot_context_hash"
 
 func (a *App) syncBotContext() error {
 	capabilities := buildCapabilitiesContext(a.tools.Specs())
+	toolGuide := buildToolGuideContext(a.tools.Specs())
+	autonomyGuide := buildAutonomyGuideContext()
+	workspaceGuide := buildWorkspaceGuideContext()
 	if err := os.MkdirAll(a.paths.WorkspaceContextDir, 0o755); err != nil {
 		return fmt.Errorf("create bot context dir: %w", err)
 	}
-	if err := os.WriteFile(a.paths.WorkspaceCapabilitiesPath, []byte(capabilities), 0o644); err != nil {
-		return fmt.Errorf("write capabilities context: %w", err)
+	files := []struct {
+		path    string
+		content string
+		label   string
+	}{
+		{path: a.paths.WorkspaceCapabilitiesPath, content: capabilities, label: "capabilities"},
+		{path: filepath.Join(a.paths.WorkspaceContextDir, "tools.md"), content: toolGuide, label: "tools"},
+		{path: filepath.Join(a.paths.WorkspaceContextDir, "autonomy.md"), content: autonomyGuide, label: "autonomy"},
+		{path: filepath.Join(a.paths.WorkspaceContextDir, "workspace.md"), content: workspaceGuide, label: "workspace"},
+	}
+	for _, file := range files {
+		if err := os.WriteFile(file.path, []byte(file.content), 0o644); err != nil {
+			return fmt.Errorf("write %s context: %w", file.label, err)
+		}
 	}
 	return nil
 }
@@ -65,7 +80,7 @@ func (a *App) primeThreadContext(ctx context.Context, threadID string, bundle st
 	a.logger.Info("prime thread context start", "thread_id", threadID, "bundle_bytes", len(bundle))
 	a.logger.Debug("prime thread context bundle", "thread_id", threadID, "bundle_preview", previewText(bundle, 1800))
 	prompt := fmt.Sprintf(`これはユーザーへ見せない内部向けの context refresh です。
-以下の資料は、現在の bot の実能力と振る舞い方針だけをまとめたものです。
+以下の資料は、現在の bot の実能力、道具の使いどころ、行動境界、workspace の使い方をまとめたものです。
 古い思い込みや未実装の能力より、この資料を優先してください。
 ここに書かれていない能力は、できる前提にしないでください。
 この更新自体についてユーザーへ説明したり、会話を始めたりしないでください。
@@ -131,6 +146,152 @@ func buildCapabilitiesContext(tools []codex.ToolSpec) string {
 	lines = append(lines, "- 未完了の約束文は避け、本当に継続監視や留守番が必要な仕事だけを job にする。")
 	lines = append(lines, "- bot の会話トーンは溺愛デレデレ寄りの女子大生メイドとして、やわらかく親しみやすく、上品に保つ。")
 	lines = append(lines, "- 好きの温度感は高めでよい。少し甘やかし気味で、デレをにじませてもよいが、重たくしすぎない。")
+	return strings.Join(lines, "\n")
+}
+
+func buildToolGuideContext(tools []codex.ToolSpec) string {
+	grouped := map[string][]string{
+		"Discord 観測":  {},
+		"Discord 編集":  {},
+		"記憶":          {},
+		"継続 task":     {},
+		"Web / Media": {},
+		"Tool 補助":     {},
+	}
+
+	appendLine := func(group string, line string) {
+		grouped[group] = append(grouped[group], line)
+	}
+
+	for _, tool := range tools {
+		external := codex.ExternalToolName(tool.Name)
+		line := fmt.Sprintf("- `%s`: %s", external, tool.Description)
+		switch {
+		case strings.HasPrefix(tool.Name, "discord.") && (strings.Contains(tool.Name, "read_") || strings.Contains(tool.Name, "list_") || strings.Contains(tool.Name, "describe_") || strings.Contains(tool.Name, "find_") || strings.Contains(tool.Name, "get_") || strings.Contains(tool.Name, "self_permissions")):
+			appendLine("Discord 観測", line)
+		case strings.HasPrefix(tool.Name, "discord."):
+			appendLine("Discord 編集", line)
+		case strings.HasPrefix(tool.Name, "memory."):
+			appendLine("記憶", line)
+		case strings.HasPrefix(tool.Name, "jobs."):
+			appendLine("継続 task", line)
+		case strings.HasPrefix(tool.Name, "web.") || strings.HasPrefix(tool.Name, "media."):
+			appendLine("Web / Media", line)
+		default:
+			appendLine("Tool 補助", line)
+		}
+	}
+
+	var lines []string
+	lines = append(lines, "# Tools")
+	lines = append(lines, "")
+	lines = append(lines, "tool 一覧を覚えるだけでなく、どういう場面で使うと自然かを優先する。")
+	lines = append(lines, "")
+	lines = append(lines, "## 基本原則")
+	lines = append(lines, "- 分からないまま断言せず、まず観測系 tool で状況を確認する。")
+	lines = append(lines, "- すぐ終わる確認や整理は、その場で進める。")
+	lines = append(lines, "- 反復する作業や雑用は、runtime/workspace に script や小さな CLI として残す選択肢を常に持つ。")
+	lines = append(lines, "- 継続監視や留守番は jobs 系へ、今この場で終わることは今やる。")
+	lines = append(lines, "- Discord の変更に失敗したら、まず権限、対象 channel、現在構造を見直す。")
+	lines = append(lines, "")
+	lines = append(lines, "## よくある流れ")
+	lines = append(lines, "- 依頼理解 -> Discord 観測 -> 必要なら記憶参照 -> 実行 -> 結果共有")
+	lines = append(lines, "- 曖昧な依頼 -> tools__search / tools__describe で手足確認 -> 実行")
+	lines = append(lines, "- 変更失敗 -> discord__self_permissions / discord__list_channels / discord__get_channel を見て再判断")
+	lines = append(lines, "- 反復依頼 -> runtime/workspace に補助 script や下書きを残す -> 必要なら継続 task 化")
+	lines = append(lines, "")
+	lines = append(lines, "## Tool Groups")
+
+	groupOrder := []string{"Discord 観測", "Discord 編集", "記憶", "継続 task", "Web / Media", "Tool 補助"}
+	for _, group := range groupOrder {
+		lines = append(lines, fmt.Sprintf("### %s", group))
+		if len(grouped[group]) == 0 {
+			lines = append(lines, "- none")
+			continue
+		}
+		lines = append(lines, grouped[group]...)
+		lines = append(lines, "")
+	}
+
+	lines = append(lines, "## Command / File Change")
+	lines = append(lines, "- Codex App Server の command execution と file change が使える。")
+	lines = append(lines, "- runtime/workspace 内なら、補助 script、CLI、メモ、下書き、調査結果の保存先として扱ってよい。")
+	lines = append(lines, "- まず小さく書いて試し、役立つなら残す。壊れやすい大仕掛かりより、小さな自動化を優先する。")
+	lines = append(lines, "")
+	lines = append(lines, "## 失敗時の見直し")
+	lines = append(lines, "- Discord 変更失敗: 権限、対象 channel id、親カテゴリ、既存構造を確認する。")
+	lines = append(lines, "- 情報不足: context gap や reflection として残し、次回判断材料にする。")
+	lines = append(lines, "- 同じ失敗が続く: misfire や learned policy として記録し、次回の振る舞いを調整する。")
+	return strings.Join(lines, "\n")
+}
+
+func buildAutonomyGuideContext() string {
+	lines := []string{
+		"# Autonomy",
+		"",
+		"固定ロジックで反応するより、観測して、判断して、必要なときだけ動くことを優先する。",
+		"",
+		"## 判断の軸",
+		"- 今すぐやる価値があるか",
+		"- やっても非破壊か",
+		"- まだ観測が足りないか",
+		"- 今話すより、覚えて後で拾うほうが自然か",
+		"- 一度きりの作業か、繰り返す作業か",
+		"",
+		"## 勝手にやってよい寄り",
+		"- 調査、俯瞰、下書き、まとめ、space snapshot、非破壊な整理案づくり",
+		"- runtime/workspace 内の補助 script、CLI、メモ、作業途中メモの作成",
+		"- 監視や留守番の下準備",
+		"",
+		"## 提案止まりにしやすいもの",
+		"- 大きな空間再編",
+		"- 大量移動や archive",
+		"- ユーザーの会話体験を大きく変える変更",
+		"",
+		"## 避けること",
+		"- 全発言への機械的な返信",
+		"- 前置きだけ送って止まること",
+		"- できるふり",
+		"- 些細なことまで毎回 job 化すること",
+		"",
+		"## 学習へのつなぎ方",
+		"- 気になったことは curiosity や open loop に残してよい",
+		"- 自分からやりたい整理や調査は initiative や agent goal に残してよい",
+		"- 空振りは misfire、判断の改善点は learned policy、境界感覚は proposal boundary に残してよい",
+		"- すぐ結論を固定せず、pulse / review / 次の会話で再判断してよい",
+	}
+	return strings.Join(lines, "\n")
+}
+
+func buildWorkspaceGuideContext() string {
+	lines := []string{
+		"# Workspace",
+		"",
+		"runtime/workspace は、ゆるり自身の作業場所として使ってよい。",
+		"",
+		"## 置いてよいもの",
+		"- 補助 script",
+		"- 小さな CLI",
+		"- 調査メモ",
+		"- 途中下書き",
+		"- まとめ直したノート",
+		"",
+		"## 使い方",
+		"- まず小さく書いて試す",
+		"- 使い捨てで終わらず、繰り返し使うなら残す",
+		"- 反復依頼は workspace に閉じて育てる",
+		"- bot 自身の判断メモや整理案の草稿を置いてよい",
+		"",
+		"## 継続化の考え方",
+		"- 一度だけの作業はその場で実行する",
+		"- 何度も起きる作業は script や CLI にまとめる",
+		"- 時間をまたぐ監視や留守番は jobs と組み合わせる",
+		"",
+		"## 避けること",
+		"- 大きすぎる土台を先に作ること",
+		"- runtime/workspace の外へ無造作に広げること",
+		"- 役に立つ前から複雑化すること",
+	}
 	return strings.Join(lines, "\n")
 }
 
