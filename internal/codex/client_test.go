@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -194,5 +195,54 @@ func TestTurnParamsAllowEffortOverride(t *testing.T) {
 	}
 	if got, _ := params["summary"].(string); got != "concise" {
 		t.Fatalf("expected summary to stay inherited, got %#v", params["summary"])
+	}
+}
+
+func TestHandleConnectionLossFailsPendingAndTurns(t *testing.T) {
+	client := NewClient(config.Config{AppName: "yururi"}, config.Paths{Workspace: "/tmp/workspace"}, slog.New(slog.NewTextHandler(io.Discard, nil)), NewToolRegistry())
+
+	pendingCh := make(chan rpcResponse, 1)
+	waiter := &turnWaiter{
+		threadID:   "thread-1",
+		turnID:     "turn-1",
+		completed:  make(chan turnResult, 1),
+		receivedAt: time.Now(),
+	}
+
+	client.stateMu.Lock()
+	client.pending["1"] = pendingCh
+	client.turns["turn-1"] = waiter
+	client.stateMu.Unlock()
+
+	client.handleConnectionLoss(errors.New("unexpected EOF"))
+
+	select {
+	case response := <-pendingCh:
+		if response.Error == nil || !strings.Contains(response.Error.Message, "app-server connection lost") {
+			t.Fatalf("unexpected pending response: %#v", response)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected pending call to be failed")
+	}
+
+	select {
+	case result := <-waiter.completed:
+		if result.Error == nil || !strings.Contains(result.Error.Error(), "app-server connection lost") {
+			t.Fatalf("unexpected turn result: %#v", result)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected active turn to be failed")
+	}
+
+	client.stateMu.Lock()
+	defer client.stateMu.Unlock()
+	if client.conn != nil {
+		t.Fatal("expected connection to be cleared")
+	}
+	if len(client.pending) != 0 {
+		t.Fatalf("expected pending map to be cleared, got %d", len(client.pending))
+	}
+	if len(client.turns) != 0 {
+		t.Fatalf("expected turns map to be cleared, got %d", len(client.turns))
 	}
 }

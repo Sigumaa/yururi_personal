@@ -559,9 +559,11 @@ func (c *Client) readLoop() {
 					websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) ||
 					strings.Contains(err.Error(), "unexpected EOF") {
 					c.logger.Info("app-server connection closed", "error", err)
+					c.handleConnectionLoss(err)
 					return
 				}
 				c.logger.Error("app-server read failed", "error", err)
+				c.handleConnectionLoss(err)
 				return
 			}
 		}
@@ -779,9 +781,55 @@ func (c *Client) writeJSON(payload any) error {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
 	if err := conn.WriteJSON(payload); err != nil {
+		c.handleConnectionLoss(err)
 		return fmt.Errorf("write app-server message: %w", err)
 	}
 	return nil
+}
+
+func (c *Client) handleConnectionLoss(cause error) {
+	c.stateMu.Lock()
+	conn := c.conn
+	cmd := c.cmd
+	if conn == nil && cmd == nil && len(c.pending) == 0 && len(c.turns) == 0 {
+		c.stateMu.Unlock()
+		return
+	}
+	c.conn = nil
+	c.cmd = nil
+	pending := c.pending
+	turns := c.turns
+	c.pending = map[string]chan rpcResponse{}
+	c.turns = map[string]*turnWaiter{}
+	c.stateMu.Unlock()
+
+	if conn != nil {
+		_ = conn.Close()
+	}
+	if cmd != nil && cmd.Process != nil {
+		_ = cmd.Process.Kill()
+		_, _ = cmd.Process.Wait()
+	}
+
+	message := fmt.Sprintf("app-server connection lost: %v", cause)
+	for _, ch := range pending {
+		if ch == nil {
+			continue
+		}
+		select {
+		case ch <- rpcResponse{Error: &rpcError{Message: message}}:
+		default:
+		}
+	}
+	for _, waiter := range turns {
+		if waiter == nil {
+			continue
+		}
+		select {
+		case waiter.completed <- turnResult{Error: errors.New(message)}:
+		default:
+		}
+	}
 }
 
 func (c *Client) dial(ctx context.Context, wsURL string) (*websocket.Conn, error) {
