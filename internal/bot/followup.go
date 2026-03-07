@@ -2,68 +2,17 @@ package bot
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
 	"time"
 
-	"github.com/Sigumaa/yururi_personal/internal/decision"
 	"github.com/Sigumaa/yururi_personal/internal/jobs"
-	"github.com/Sigumaa/yururi_personal/internal/memory"
 )
-
-type executionReport struct {
-	MemoryWrites []string
-	Actions      []string
-	Jobs         []string
-}
-
-func (r executionReport) HasEffects() bool {
-	return len(r.Actions) > 0 || len(r.Jobs) > 0
-}
-
-func (r executionReport) Render() string {
-	lines := []string{"memory_writes:"}
-	if len(r.MemoryWrites) == 0 {
-		lines = append(lines, "- none")
-	} else {
-		for _, item := range r.MemoryWrites {
-			lines = append(lines, "- "+item)
-		}
-	}
-
-	lines = append(lines, "actions:")
-	if len(r.Actions) == 0 {
-		lines = append(lines, "- none")
-	} else {
-		for _, item := range r.Actions {
-			lines = append(lines, "- "+item)
-		}
-	}
-
-	lines = append(lines, "jobs:")
-	if len(r.Jobs) == 0 {
-		lines = append(lines, "- none")
-	} else {
-		for _, item := range r.Jobs {
-			lines = append(lines, "- "+item)
-		}
-	}
-	return strings.Join(lines, "\n")
-}
 
 var promiseReplyRe = regexp.MustCompile(`(?:やります|進めます|見ておきます|確認します|調べます|対応します|待っていて|待ってて|できたら|終わったら|あとで|順に手をつけます|返します|共有します)`)
 var promiseFillerRe = regexp.MustCompile(`^(?:はい|了解です|承知しました|わかりました|もちろん|うん|では|それでは|いまから|今から|すぐ|大丈夫です|ありがとうございます|ごめんなさい|失礼しました|お待たせしました|この件は|その件は|まずは|ひとまず|いったん|一旦|ではまず)$`)
 var promiseContentRe = regexp.MustCompile(`(?:できました|完了|登録しました|作成しました|更新しました|移動しました|送信しました|確認できました|取得できました|見えています|見えました|わかっています|つまり|例えば|詳細|理由|結果|状態|いまは|現在|について|一覧|まとめ)`)
-
-func parseDecisionPlan(raw string) (decision.ReplyDecision, error) {
-	var planned decision.ReplyDecision
-	if err := json.Unmarshal([]byte(raw), &planned); err != nil {
-		return decision.ReplyDecision{}, fmt.Errorf("parse decision plan: %w", err)
-	}
-	return planned, nil
-}
 
 func looksLikePromiseOnly(message string) bool {
 	trimmed := strings.TrimSpace(message)
@@ -107,41 +56,6 @@ func looksLikePromiseOnly(message string) bool {
 	return hasPromise
 }
 
-func (a *App) composeDecisionReply(ctx context.Context, msg memory.Message, planned decision.ReplyDecision, report executionReport) (string, error) {
-	draft := strings.TrimSpace(planned.Message)
-	switch {
-	case draft == "" && !report.HasEffects():
-		a.logger.Debug("compose reply skipped", "channel", msg.ChannelName, "message_id", msg.ID, "reason", "empty_draft_no_effects")
-		return "", nil
-	case draft == "" && report.HasEffects():
-		a.logger.Debug("compose reply from execution", "channel", msg.ChannelName, "message_id", msg.ID, "reason", "empty_draft_with_effects")
-		return a.composeReplyFromExecution(ctx, msg, planned, report, "")
-	default:
-		a.logger.Debug("compose reply used planner draft", "channel", msg.ChannelName, "message_id", msg.ID, "draft_preview", previewText(draft, 240))
-		return draft, nil
-	}
-}
-
-func (a *App) composeReplyFromExecution(ctx context.Context, msg memory.Message, planned decision.ReplyDecision, report executionReport, draft string) (string, error) {
-	if a.thread.ID == "" {
-		return "", nil
-	}
-
-	prompt := buildExecutionReplyPrompt(msg, planned, report, draft)
-	a.logger.Debug("execution reply prompt", "thread_id", a.thread.ID, "channel", msg.ChannelName, "message_id", msg.ID, "prompt_preview", previewText(prompt, 1400))
-	raw, err := a.runThreadTurn(ctx, a.thread.ID, prompt)
-	if err != nil {
-		return "", fmt.Errorf("compose execution reply: %w", err)
-	}
-	a.logger.Debug("execution reply output", "thread_id", a.thread.ID, "channel", msg.ChannelName, "message_id", msg.ID, "raw_preview", previewText(raw, 800))
-	reply := parseAssistantReply(raw)
-	if reply.Action == decision.ActionIgnore {
-		a.logger.Debug("execution reply suppressed", "channel", msg.ChannelName, "message_id", msg.ID, "reason", "assistant_ignore")
-		return "", nil
-	}
-	return strings.TrimSpace(reply.Message), nil
-}
-
 func (a *App) handleJobResult(job jobs.Job, result jobs.Result, runErr error) {
 	if a.discord == nil || strings.TrimSpace(job.ChannelID) == "" {
 		a.logger.Debug("job observer skipped", "job_id", job.ID, "kind", job.Kind, "reason", "missing_discord_or_channel")
@@ -166,7 +80,7 @@ func (a *App) handleJobResult(job jobs.Job, result jobs.Result, runErr error) {
 	}
 	a.logger.Debug("job follow-up output", "job_id", job.ID, "kind", job.Kind, "raw_preview", previewText(raw, 800))
 	reply := parseAssistantReply(raw)
-	if reply.Action == decision.ActionIgnore || strings.TrimSpace(reply.Message) == "" {
+	if reply.Action == assistantActionIgnore || strings.TrimSpace(reply.Message) == "" {
 		a.logger.Debug("job follow-up skipped", "job_id", job.ID, "kind", job.Kind, "reason", "assistant_ignore_or_empty")
 		return
 	}

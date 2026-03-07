@@ -19,4 +19,3 @@ sandbox_mode = "danger-full-access"
 reasoning_effort = "medium"
 reasoning_summary = "concise"
 enable_apps = true
-enable_skills = true

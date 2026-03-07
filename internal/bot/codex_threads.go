@@ -61,7 +61,6 @@ func (a *App) ensureChannelThread(ctx context.Context, channelID string) (codex.
 	a.sessionMu.Lock()
 	if session, ok := a.channelThreads[channelID]; ok && session.ID != "" {
 		a.sessionMu.Unlock()
-		a.rememberThreadChannel(session.ID, channelID)
 		a.logger.Debug("channel thread reused", "channel_id", channelID, "thread_id", session.ID)
 		return session, nil
 	}
@@ -88,7 +87,6 @@ func (a *App) ensureChannelThread(ctx context.Context, channelID string) (codex.
 	a.sessionMu.Lock()
 	a.channelThreads[channelID] = session
 	a.sessionMu.Unlock()
-	a.rememberThreadChannel(session.ID, channelID)
 	a.logger.Info("channel thread ready", "channel_id", channelID, "thread_id", session.ID)
 	return session, nil
 }

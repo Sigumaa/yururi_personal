@@ -14,7 +14,6 @@ import (
 
 	"github.com/Sigumaa/yururi_personal/internal/codex"
 	"github.com/Sigumaa/yururi_personal/internal/config"
-	"github.com/Sigumaa/yururi_personal/internal/decision"
 	discordsvc "github.com/Sigumaa/yururi_personal/internal/discord"
 	"github.com/Sigumaa/yururi_personal/internal/jobs"
 	"github.com/Sigumaa/yururi_personal/internal/memory"
@@ -40,11 +39,6 @@ type App struct {
 	threadMu       sync.Mutex
 	threadLocks    map[string]*sync.Mutex
 	thread         codex.ThreadSession
-
-	threadMapMu        sync.Mutex
-	threadChannelsByID map[string]string
-	turnProgressMu     sync.Mutex
-	turnProgress       map[string]toolTurnProgress
 }
 
 func New(cfg config.Config, logger *slog.Logger) (*App, error) {
@@ -62,15 +56,13 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	}
 
 	app := &App{
-		cfg:                cfg,
-		paths:              paths,
-		logger:             logger,
-		loc:                loc,
-		store:              store,
-		channelThreads:     map[string]codex.ThreadSession{},
-		threadLocks:        map[string]*sync.Mutex{},
-		threadChannelsByID: map[string]string{},
-		turnProgress:       map[string]toolTurnProgress{},
+		cfg:            cfg,
+		paths:          paths,
+		logger:         logger,
+		loc:            loc,
+		store:          store,
+		channelThreads: map[string]codex.ThreadSession{},
+		threadLocks:    map[string]*sync.Mutex{},
 		http: &http.Client{
 			Timeout: 10 * time.Second,
 		},
@@ -342,154 +334,6 @@ func (a *App) processPresence(event *discordgo.PresenceUpdate) {
 			}
 		}
 	}
-}
-
-func (a *App) planDecision(ctx context.Context, msg memory.Message, profile memory.ChannelProfile, recent []memory.Message, facts []memory.Fact) (decision.ReplyDecision, error) {
-	if a.thread.ID == "" {
-		return decision.ReplyDecision{}, errors.New("codex thread is unavailable")
-	}
-
-	prompt := buildPlannerPrompt(msg, profile, recent, facts, a.tools.Specs(), a.discordSelfMention())
-	a.logger.Info("codex turn start", "thread_id", a.thread.ID, "channel", msg.ChannelName, "message_id", msg.ID, "prompt_bytes", len(prompt))
-	a.logger.Debug("codex planner prompt", "thread_id", a.thread.ID, "channel", msg.ChannelName, "message_id", msg.ID, "prompt_preview", previewText(prompt, 1600))
-	raw, err := a.runThreadJSONTurn(ctx, a.thread.ID, prompt, decision.OutputSchema())
-	if err != nil {
-		a.logger.Warn("codex turn failed", "channel", msg.ChannelName, "message_id", msg.ID, "error", err)
-		return decision.ReplyDecision{}, fmt.Errorf("run codex turn: %w", err)
-	}
-	a.logger.Info("codex turn completed", "channel", msg.ChannelName, "message_id", msg.ID, "response_bytes", len(raw))
-	a.logger.Debug("codex planner output", "channel", msg.ChannelName, "message_id", msg.ID, "raw", previewText(raw, 1600))
-	return parseDecisionPlan(raw)
-}
-
-func (a *App) executeDecision(ctx context.Context, msg memory.Message, selected decision.ReplyDecision) (executionReport, error) {
-	report := executionReport{}
-	a.logger.Debug("execute decision start", "channel", msg.ChannelName, "message_id", msg.ID, "memory_writes", len(selected.MemoryWrites), "actions", len(selected.Actions), "jobs", len(selected.Jobs))
-	for _, write := range selected.MemoryWrites {
-		a.logger.Debug("memory write start", "kind", write.Kind, "key", write.Key, "value_preview", previewText(write.Value, 240))
-		if err := a.store.UpsertFact(ctx, memory.Fact{
-			Kind:            write.Kind,
-			Key:             write.Key,
-			Value:           write.Value,
-			SourceMessageID: msg.ID,
-		}); err != nil {
-			return executionReport{}, err
-		}
-		report.MemoryWrites = append(report.MemoryWrites, fmt.Sprintf("%s/%s", write.Kind, write.Key))
-	}
-
-	for _, action := range selected.Actions {
-		if err := a.sendActionAnnouncement(ctx, msg.ChannelID, action); err != nil {
-			return executionReport{}, err
-		}
-		a.logger.Debug("server action start", "action", previewJSON(action, 600))
-		summary, err := a.executeAction(ctx, action)
-		if err != nil {
-			return executionReport{}, err
-		}
-		report.Actions = append(report.Actions, summary)
-	}
-
-	for _, req := range selected.Jobs {
-		a.logger.Debug("job request start", "job_request", previewJSON(req, 900))
-		summary, err := a.enqueueJob(ctx, msg, req)
-		if err != nil {
-			return executionReport{}, err
-		}
-		report.Jobs = append(report.Jobs, summary)
-	}
-	return report, nil
-}
-
-func (a *App) sendActionAnnouncement(ctx context.Context, channelID string, action decision.ServerAction) error {
-	text := strings.TrimSpace(action.AnnouncementText)
-	if text == "" {
-		return nil
-	}
-	if a.discord == nil {
-		return errors.New("discord is not connected")
-	}
-	sentID, err := a.discord.SendMessage(ctx, channelID, text)
-	if err != nil {
-		return err
-	}
-	a.logger.Info("action announcement sent", "channel_id", channelID, "message_id", sentID, "action_type", action.Type, "text_preview", previewText(text, 240))
-	return nil
-}
-
-func (a *App) executeAction(ctx context.Context, action decision.ServerAction) (string, error) {
-	a.logger.Debug("execute action", "type", action.Type, "action", previewJSON(action, 600))
-	switch action.Type {
-	case "create_category":
-		channel, err := a.discord.EnsureCategory(ctx, a.cfg.Discord.GuildID, action.Name)
-		if err != nil {
-			return "", err
-		}
-		return fmt.Sprintf("created category %s (%s)", channel.Name, channel.ID), nil
-	case "create_channel":
-		channel, err := a.discord.EnsureTextChannel(ctx, a.cfg.Discord.GuildID, discordsvc.ChannelSpec{
-			Name:     sanitizeChannelName(action.Name),
-			Topic:    action.Topic,
-			ParentID: action.ParentChannelID,
-		})
-		if err != nil {
-			return "", err
-		}
-		return fmt.Sprintf("created channel %s (%s)", channel.Name, channel.ID), nil
-	case "rename_channel":
-		channel, err := a.discord.RenameChannel(ctx, action.TargetChannelID, sanitizeChannelName(action.Name))
-		if err != nil {
-			return "", err
-		}
-		return fmt.Sprintf("renamed channel %s (%s)", channel.Name, channel.ID), nil
-	case "set_channel_topic":
-		channel, err := a.discord.SetChannelTopic(ctx, action.TargetChannelID, action.Topic)
-		if err != nil {
-			return "", err
-		}
-		return fmt.Sprintf("updated topic for %s (%s)", channel.Name, channel.ID), nil
-	case "move_channel":
-		if err := a.discord.MoveChannel(ctx, action.TargetChannelID, action.ParentChannelID); err != nil {
-			return "", err
-		}
-		return fmt.Sprintf("moved channel %s to %s", action.TargetChannelID, action.ParentChannelID), nil
-	}
-	return "", fmt.Errorf("unsupported action type: %s", action.Type)
-}
-
-func (a *App) enqueueJob(ctx context.Context, msg memory.Message, req decision.JobRequest) (string, error) {
-	channelID := req.ChannelID
-	if channelID == "" {
-		channelID = msg.ChannelID
-	}
-	job := jobs.NewJob(jobID(req.Kind), req.Kind, req.Title, channelID, req.Schedule, req.Payload)
-	if job.Payload == nil {
-		job.Payload = map[string]any{}
-	}
-	if req.Schedule == "" {
-		job.ScheduleExpr = defaultWatchSchedule
-	}
-	if req.Kind == "codex_release_watch" && job.Payload["repo"] == nil {
-		job.Payload["repo"] = "openai/codex"
-	}
-	if req.Kind == "codex_background_task" {
-		if job.Payload["prompt"] == nil {
-			job.Payload["prompt"] = msg.Content
-		}
-		if job.Payload["goal"] == nil {
-			job.Payload["goal"] = req.Title
-		}
-	}
-	job.Payload["origin_channel_id"] = msg.ChannelID
-	job.Payload["origin_message_id"] = msg.ID
-	job.Payload["origin_channel_name"] = msg.ChannelName
-	job.Payload["origin_author_name"] = msg.AuthorName
-	a.logger.Info("job enqueued", "job_id", job.ID, "kind", job.Kind, "channel_id", job.ChannelID, "schedule", job.ScheduleExpr, "title", job.Title)
-	a.logger.Debug("job payload", "job_id", job.ID, "payload", previewJSON(job.Payload, 1200))
-	if err := a.store.UpsertJob(ctx, job); err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("scheduled job %s (%s)", job.ID, job.Kind), nil
 }
 
 func (a *App) resolveChannelProfile(ctx context.Context, channelID string, channelName string) (memory.ChannelProfile, error) {

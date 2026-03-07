@@ -10,24 +10,36 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Sigumaa/yururi_personal/internal/decision"
 	"github.com/Sigumaa/yururi_personal/internal/jobs"
 	"github.com/Sigumaa/yururi_personal/internal/memory"
 )
 
 const noReplyToken = "<NO_REPLY>"
 
-func parseAssistantReply(raw string) decision.ReplyDecision {
+type assistantAction string
+
+const (
+	assistantActionIgnore assistantAction = "ignore"
+	assistantActionReply  assistantAction = "reply"
+)
+
+type assistantReply struct {
+	Action  assistantAction
+	Reason  string
+	Message string
+}
+
+func parseAssistantReply(raw string) assistantReply {
 	trimmed := strings.TrimSpace(raw)
 	switch {
 	case trimmed == "", strings.EqualFold(trimmed, noReplyToken):
-		return decision.ReplyDecision{
-			Action: decision.ActionIgnore,
+		return assistantReply{
+			Action: assistantActionIgnore,
 			Reason: "codex selected silence",
 		}
 	default:
-		return decision.ReplyDecision{
-			Action:  decision.ActionReply,
+		return assistantReply{
+			Action:  assistantActionReply,
 			Reason:  "codex text reply",
 			Message: trimmed,
 		}

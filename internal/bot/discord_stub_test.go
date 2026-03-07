@@ -2,11 +2,7 @@ package bot
 
 import (
 	"context"
-	"io"
-	"log/slog"
-	"testing"
 
-	"github.com/Sigumaa/yururi_personal/internal/decision"
 	discordsvc "github.com/Sigumaa/yururi_personal/internal/discord"
 	"github.com/bwmarrin/discordgo"
 )
@@ -68,25 +64,3 @@ func (d *discordStub) SelfChannelPermissions(context.Context, string) (discordsv
 	return discordsvc.PermissionSnapshot{UserID: "bot", ChannelID: "c-1", ManageChannels: true, ViewChannel: true, SendMessages: true}, nil
 }
 func (d *discordStub) SelfUserID() string { return "" }
-
-func TestSendActionAnnouncementUsesAnnouncementText(t *testing.T) {
-	discord := &discordStub{}
-	app := &App{
-		logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
-		discord: discord,
-	}
-
-	err := app.sendActionAnnouncement(context.Background(), "c-1", decision.ServerAction{
-		Type:             "create_channel",
-		AnnouncementText: "ちょっと整えてみますね。",
-	})
-	if err != nil {
-		t.Fatalf("sendActionAnnouncement: %v", err)
-	}
-	if discord.sentChannel != "c-1" {
-		t.Fatalf("unexpected channel: %s", discord.sentChannel)
-	}
-	if discord.sentContent != "ちょっと整えてみますね。" {
-		t.Fatalf("unexpected content: %s", discord.sentContent)
-	}
-}

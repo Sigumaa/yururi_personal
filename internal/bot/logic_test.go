@@ -5,20 +5,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Sigumaa/yururi_personal/internal/decision"
 	"github.com/Sigumaa/yururi_personal/internal/memory"
 )
 
 func TestParseAssistantReplyNoReply(t *testing.T) {
 	got := parseAssistantReply(noReplyToken)
-	if got.Action != decision.ActionIgnore {
+	if got.Action != assistantActionIgnore {
 		t.Fatalf("expected ignore, got %s", got.Action)
 	}
 }
 
 func TestParseAssistantReplyText(t *testing.T) {
 	got := parseAssistantReply("こんにちは")
-	if got.Action != decision.ActionReply {
+	if got.Action != assistantActionReply {
 		t.Fatalf("expected reply, got %s", got.Action)
 	}
 	if got.Message != "こんにちは" {

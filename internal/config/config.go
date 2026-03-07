@@ -38,7 +38,6 @@ type CodexConfig struct {
 	ReasoningEffort  string `toml:"reasoning_effort"`
 	ReasoningSummary string `toml:"reasoning_summary"`
 	EnableApps       bool   `toml:"enable_apps"`
-	EnableSkills     bool   `toml:"enable_skills"`
 }
 
 type Paths struct {
@@ -118,7 +117,6 @@ func defaultConfig() Config {
 			ReasoningEffort:  "medium",
 			ReasoningSummary: "concise",
 			EnableApps:       true,
-			EnableSkills:     true,
 		},
 	}
 }

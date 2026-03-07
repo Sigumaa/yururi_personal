@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/Sigumaa/yururi_personal/internal/codex"
-	"github.com/Sigumaa/yururi_personal/internal/decision"
 	"github.com/Sigumaa/yururi_personal/internal/jobs"
 	"github.com/Sigumaa/yururi_personal/internal/memory"
 )
@@ -31,7 +30,7 @@ func (a *App) runConversationTurn(ctx context.Context, threadID string, msg memo
 	a.logger.Info("conversation turn completed", "thread_id", threadID, "channel", msg.ChannelName, "message_id", msg.ID, "response_bytes", len(raw))
 	a.logger.Debug("conversation output", "thread_id", threadID, "channel", msg.ChannelName, "message_id", msg.ID, "raw_preview", previewText(raw, 1800))
 	reply := parseAssistantReply(raw)
-	if reply.Action == decision.ActionIgnore || strings.TrimSpace(reply.Message) == "" {
+	if reply.Action == assistantActionIgnore || strings.TrimSpace(reply.Message) == "" {
 		return "", nil
 	}
 	return strings.TrimSpace(reply.Message), nil
@@ -134,7 +133,7 @@ func (a *App) handleAutonomyPulseJob(ctx context.Context, job jobs.Job) (jobs.Re
 	a.logger.Debug("autonomy pulse output", "job_id", job.ID, "thread_id", session.ID, "response_preview", previewText(raw, 1600))
 
 	reply := parseAssistantReply(raw)
-	if reply.Action == decision.ActionIgnore || strings.TrimSpace(reply.Message) == "" {
+	if reply.Action == assistantActionIgnore || strings.TrimSpace(reply.Message) == "" {
 		return jobs.Result{NextRunAt: nextRunAt}, nil
 	}
 	if targetChannelID == "" || a.discord == nil {
