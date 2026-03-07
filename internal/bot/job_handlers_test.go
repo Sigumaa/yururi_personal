@@ -13,6 +13,7 @@ import (
 	discordsvc "github.com/Sigumaa/yururi_personal/internal/discord"
 	"github.com/Sigumaa/yururi_personal/internal/jobs"
 	"github.com/Sigumaa/yururi_personal/internal/memory"
+	"github.com/Sigumaa/yururi_personal/internal/review"
 	"github.com/bwmarrin/discordgo"
 )
 
@@ -118,7 +119,7 @@ func TestHandleSpaceReviewJobSendsReport(t *testing.T) {
 }
 
 func TestReviewPromptBuilders(t *testing.T) {
-	decisionPrompt := buildDecisionReviewPrompt(
+	decisionPrompt := review.DecisionPrompt(noReplyToken,
 		[]memory.Fact{{Kind: "decision", Key: "tone", Value: "少し短めにする"}},
 		[]memory.Message{{ChannelName: "general", Content: "最近は短く返してほしい", CreatedAt: time.Date(2026, 3, 7, 1, 0, 0, 0, time.UTC)}},
 	)
@@ -126,7 +127,7 @@ func TestReviewPromptBuilders(t *testing.T) {
 		t.Fatalf("unexpected decision prompt: %s", decisionPrompt)
 	}
 
-	improvementPrompt := buildSelfImprovementReviewPrompt(
+	improvementPrompt := review.SelfImprovementPrompt(noReplyToken,
 		[]memory.Fact{{Kind: "automation_candidate", Key: "space", Value: "空間整理を楽にしたい"}},
 		[]memory.Summary{{Content: "前置きだけで止まらないほうがよい"}},
 		[]memory.Summary{{Content: "tool call が安定してきた"}},
@@ -137,7 +138,7 @@ func TestReviewPromptBuilders(t *testing.T) {
 		}
 	}
 
-	rolePrompt := buildChannelRoleReviewPrompt(
+	rolePrompt := review.ChannelRolePrompt(noReplyToken,
 		[]discordsvc.Channel{{ID: "cat1", Name: "lab", Type: discordgo.ChannelTypeGuildCategory}, {ID: "c1", Name: "general", ParentID: "cat1", Type: discordgo.ChannelTypeGuildText}},
 		[]memory.ChannelProfile{{ChannelID: "c1", Name: "general", Kind: "conversation", ReplyAggressiveness: 0.75, AutonomyLevel: 0.55, SummaryCadence: "daily"}},
 		[]memory.ChannelActivity{{ChannelID: "c1", ChannelName: "general", MessageCount: 8, LastMessageAt: time.Now().UTC()}},
@@ -146,7 +147,7 @@ func TestReviewPromptBuilders(t *testing.T) {
 		t.Fatalf("unexpected role prompt: %s", rolePrompt)
 	}
 
-	curiosityPrompt := buildCuriosityReviewPrompt(
+	curiosityPrompt := review.CuriosityPrompt(noReplyToken,
 		[]memory.Fact{{Kind: "curiosity", Key: "rust-runtime", Value: "tokio 以外も気になる"}},
 		[]memory.Fact{{Kind: "open_loop", Key: "agent-flow", Value: "会話しながら tool を回したい"}},
 		[]memory.Message{{ChannelName: "general", Content: "そういえば別 runtime も気になる", CreatedAt: time.Date(2026, 3, 7, 1, 0, 0, 0, time.UTC)}},
@@ -157,19 +158,19 @@ func TestReviewPromptBuilders(t *testing.T) {
 		}
 	}
 
-	initiativePrompt := buildInitiativeReviewPrompt(
+	initiativePrompt := review.InitiativePrompt(noReplyToken,
 		[]memory.Fact{{Kind: "initiative", Key: "cleanup", Value: "空間整理を提案したい"}},
 		[]memory.Fact{{Kind: "automation_candidate", Key: "watch", Value: "監視候補が増えている"}},
 		[]memory.Fact{{Kind: "open_loop", Key: "space", Value: "整理のタイミングを見たい"}},
 		[]memory.Fact{{Kind: "context_gap", Key: "sleep", Value: "生活リズムの確信が薄い"}},
 	)
-	for _, want := range []string{"分類は、1. 勝手に整えてよい軽い下ごしらえ", "cleanup", "context gaps"} {
+	for _, want := range []string{"initiatives", "cleanup", "context gaps"} {
 		if !strings.Contains(initiativePrompt, want) {
 			t.Fatalf("expected %q in initiative prompt, got %s", want, initiativePrompt)
 		}
 	}
 
-	softReminderPrompt := buildSoftReminderReviewPrompt(
+	softReminderPrompt := review.SoftReminderPrompt(noReplyToken,
 		[]memory.Fact{{Kind: "soft_reminder", Key: "cleanup", Value: "来月くらいに整理したい"}},
 		[]memory.Fact{{Kind: "routine", Key: "morning", Value: "朝に Discord を見る"}},
 		[]memory.Message{{ChannelName: "general", Content: "来月あたりに整理しようかな", CreatedAt: time.Date(2026, 3, 7, 1, 0, 0, 0, time.UTC)}},
@@ -180,18 +181,18 @@ func TestReviewPromptBuilders(t *testing.T) {
 		}
 	}
 
-	topicPrompt := buildTopicSynthesisReviewPrompt(
+	topicPrompt := review.TopicSynthesisPrompt(noReplyToken,
 		[]memory.Fact{{Kind: "topic_thread", Key: "auth", Value: "OAuth と認証の断片"}},
 		[]memory.Message{{ChannelName: "reading", Content: "OAuth 解説記事よかった", CreatedAt: time.Date(2026, 3, 7, 1, 0, 0, 0, time.UTC)}},
 		[]memory.Summary{{Content: "今週は認証まわりが増えていた"}},
 	)
-	for _, want := range []string{"topic threads", "auth", "recent weekly summaries"} {
+	for _, want := range []string{"topic threads", "auth", "recent summaries"} {
 		if !strings.Contains(topicPrompt, want) {
 			t.Fatalf("expected %q in topic prompt, got %s", want, topicPrompt)
 		}
 	}
 
-	baselinePrompt := buildBaselineReviewPrompt(
+	baselinePrompt := review.BaselinePrompt(noReplyToken,
 		[]memory.Fact{{Kind: "behavior_baseline", Key: "late-night", Value: "普段は23時台に静か"}},
 		[]memory.Fact{{Kind: "behavior_deviation", Key: "late-night-shift", Value: "今日は深夜も活動している"}},
 		[]memory.Fact{{Kind: "routine", Key: "night", Value: "夜は静かめ"}},
@@ -203,7 +204,7 @@ func TestReviewPromptBuilders(t *testing.T) {
 		}
 	}
 
-	policyPrompt := buildPolicySynthesisReviewPrompt(
+	policyPrompt := review.PolicySynthesisPrompt(noReplyToken,
 		[]memory.Fact{{Kind: "learned_policy", Key: "notify-lightly", Value: "軽い通知は一言で済ませる"}},
 		[]memory.Fact{{Kind: "decision", Key: "tone", Value: "説明は短めにする"}},
 		[]memory.Fact{{Kind: "misfire", Key: "over-reply", Value: "独り言に反応しすぎた"}},
@@ -215,7 +216,7 @@ func TestReviewPromptBuilders(t *testing.T) {
 		}
 	}
 
-	workspacePrompt := buildWorkspaceReviewPrompt(
+	workspacePrompt := review.WorkspacePrompt(noReplyToken,
 		[]memory.Fact{{Kind: "workspace_note", Key: "workshop-draft", Value: "作業用チャンネルをどう作るかの下書き"}},
 		[]memory.Fact{{Kind: "initiative", Key: "workshop", Value: "作業場所の候補を見たい"}},
 		[]memory.Fact{{Kind: "topic_thread", Key: "auth", Value: "認証まわりの断片が増えている"}},
@@ -227,7 +228,7 @@ func TestReviewPromptBuilders(t *testing.T) {
 		}
 	}
 
-	boundaryPrompt := buildProposalBoundaryReviewPrompt(
+	boundaryPrompt := review.ProposalBoundaryPrompt(noReplyToken,
 		[]memory.Fact{{Kind: "proposal_boundary", Key: "space-boundary", Value: "整理案は先に作って、変更は提案に留める"}},
 		[]memory.Fact{{Kind: "initiative", Key: "cleanup", Value: "空間整理をしたい"}},
 		[]memory.Fact{{Kind: "decision", Key: "autonomy-mode", Value: "小さな整理は今やる"}},

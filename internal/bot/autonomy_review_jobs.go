@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Sigumaa/yururi_personal/internal/jobs"
+	"github.com/Sigumaa/yururi_personal/internal/review"
 )
 
 func (a *App) handleOpenLoopReviewJob(ctx context.Context, job jobs.Job) (jobs.Result, error) {
@@ -21,7 +22,7 @@ func (a *App) handleOpenLoopReviewJob(ctx context.Context, job jobs.Job) (jobs.R
 		if err != nil {
 			return "", false, err
 		}
-		return buildOpenLoopReviewPrompt(loops, recentOwnerMessages), true, nil
+		return review.OpenLoopPrompt(noReplyToken, loops, recentOwnerMessages), true, nil
 	})
 }
 
@@ -39,7 +40,7 @@ func (a *App) handleCuriosityReviewJob(ctx context.Context, job jobs.Job) (jobs.
 		if err != nil {
 			return "", false, err
 		}
-		return buildCuriosityReviewPrompt(curiosities, openLoops, recentOwnerMessages), true, nil
+		return review.CuriosityPrompt(noReplyToken, curiosities, openLoops, recentOwnerMessages), true, nil
 	})
 }
 
@@ -61,7 +62,7 @@ func (a *App) handleInitiativeReviewJob(ctx context.Context, job jobs.Job) (jobs
 		if err != nil {
 			return "", false, err
 		}
-		return buildInitiativeReviewPrompt(initiatives, candidates, openLoops, contextGaps), true, nil
+		return review.InitiativePrompt(noReplyToken, initiatives, candidates, openLoops, contextGaps), true, nil
 	})
 }
 
@@ -79,7 +80,7 @@ func (a *App) handleSoftReminderReviewJob(ctx context.Context, job jobs.Job) (jo
 		if err != nil {
 			return "", false, err
 		}
-		return buildSoftReminderReviewPrompt(reminders, routines, recentOwnerMessages), true, nil
+		return review.SoftReminderPrompt(noReplyToken, reminders, routines, recentOwnerMessages), true, nil
 	})
 }
 
@@ -97,7 +98,7 @@ func (a *App) handleTopicSynthesisReviewJob(ctx context.Context, job jobs.Job) (
 		if err != nil {
 			return "", false, err
 		}
-		return buildTopicSynthesisReviewPrompt(topics, recentOwnerMessages, summaries), true, nil
+		return review.TopicSynthesisPrompt(noReplyToken, topics, recentOwnerMessages, summaries), true, nil
 	})
 }
 
@@ -119,7 +120,7 @@ func (a *App) handleBaselineReviewJob(ctx context.Context, job jobs.Job) (jobs.R
 		if err != nil {
 			return "", false, err
 		}
-		return buildBaselineReviewPrompt(baselines, deviations, routines, recentOwnerMessages), true, nil
+		return review.BaselinePrompt(noReplyToken, baselines, deviations, routines, recentOwnerMessages), true, nil
 	})
 }
 
@@ -141,7 +142,7 @@ func (a *App) handlePolicySynthesisReviewJob(ctx context.Context, job jobs.Job) 
 		if err != nil {
 			return "", false, err
 		}
-		return buildPolicySynthesisReviewPrompt(learnedPolicies, decisions, misfires, reflections), true, nil
+		return review.PolicySynthesisPrompt(noReplyToken, learnedPolicies, decisions, misfires, reflections), true, nil
 	})
 }
 
@@ -163,7 +164,7 @@ func (a *App) handleWorkspaceReviewJob(ctx context.Context, job jobs.Job) (jobs.
 		if err != nil {
 			return "", false, err
 		}
-		return buildWorkspaceReviewPrompt(workspaceNotes, initiatives, topics, recentOwnerMessages), true, nil
+		return review.WorkspacePrompt(noReplyToken, workspaceNotes, initiatives, topics, recentOwnerMessages), true, nil
 	})
 }
 
@@ -189,7 +190,7 @@ func (a *App) handleProposalBoundaryReviewJob(ctx context.Context, job jobs.Job)
 		if err != nil {
 			return "", false, err
 		}
-		return buildProposalBoundaryReviewPrompt(proposalBoundaries, initiatives, decisions, misfires, contextGaps), true, nil
+		return review.ProposalBoundaryPrompt(noReplyToken, proposalBoundaries, initiatives, decisions, misfires, contextGaps), true, nil
 	})
 }
 
@@ -210,7 +211,7 @@ func (a *App) handleChannelCurationJob(ctx context.Context, job jobs.Job) (jobs.
 		if err != nil {
 			return "", false, err
 		}
-		return buildChannelCurationPrompt(channels, profiles, activity), true, nil
+		return review.ChannelCurationPrompt(noReplyToken, channels, profiles, activity), true, nil
 	})
 }
 
@@ -224,7 +225,7 @@ func (a *App) handleDecisionReviewJob(ctx context.Context, job jobs.Job) (jobs.R
 		if err != nil {
 			return "", false, err
 		}
-		return buildDecisionReviewPrompt(decisions, recentOwnerMessages), true, nil
+		return review.DecisionPrompt(noReplyToken, decisions, recentOwnerMessages), true, nil
 	})
 }
 
@@ -242,7 +243,7 @@ func (a *App) handleSelfImprovementReviewJob(ctx context.Context, job jobs.Job) 
 		if err != nil {
 			return "", false, err
 		}
-		return buildSelfImprovementReviewPrompt(candidates, reflections, growth), true, nil
+		return review.SelfImprovementPrompt(noReplyToken, candidates, reflections, growth), true, nil
 	})
 }
 
@@ -263,6 +264,6 @@ func (a *App) handleChannelRoleReviewJob(ctx context.Context, job jobs.Job) (job
 		if err != nil {
 			return "", false, err
 		}
-		return buildChannelRoleReviewPrompt(channels, profiles, activity), true, nil
+		return review.ChannelRolePrompt(noReplyToken, channels, profiles, activity), true, nil
 	})
 }
