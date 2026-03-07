@@ -3,6 +3,7 @@ package bot
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -52,9 +53,10 @@ func looksLikeImageAttachment(attachment *discordgo.MessageAttachment) bool {
 	return inferImageContentType(attachment.URL, attachment.Filename) != ""
 }
 
-func (a *App) buildImageInputs(ctx context.Context, urls []string) ([]codex.InputItem, []string) {
+func (a *App) buildImageInputs(ctx context.Context, urls []string) ([]codex.InputItem, []string, error) {
 	items := make([]codex.InputItem, 0, len(urls))
 	notes := make([]string, 0, len(urls))
+	failed := false
 	for _, rawURL := range urls {
 		rawURL = strings.TrimSpace(rawURL)
 		if rawURL == "" {
@@ -62,14 +64,18 @@ func (a *App) buildImageInputs(ctx context.Context, urls []string) ([]codex.Inpu
 		}
 		imageURL, mode, err := a.resolveImageInputURL(ctx, rawURL)
 		if err != nil {
-			a.logger.Warn("image fetch fallback", "url", rawURL, "error", err)
-			imageURL = rawURL
-			mode = "remote-fallback"
+			failed = true
+			a.logger.Warn("image fetch failed", "url", rawURL, "error", err)
+			notes = append(notes, fmt.Sprintf("- %s (error: %v)", rawURL, err))
+			continue
 		}
 		items = append(items, codex.ImageInput(imageURL))
 		notes = append(notes, fmt.Sprintf("- %s (%s)", rawURL, mode))
 	}
-	return items, notes
+	if len(items) == 0 && failed {
+		return nil, notes, errors.New("failed to load image attachments")
+	}
+	return items, notes, nil
 }
 
 func (a *App) resolveImageInputURL(ctx context.Context, rawURL string) (string, string, error) {

@@ -47,6 +47,30 @@ func TestMediaLoadAttachmentsReturnsImageItems(t *testing.T) {
 	}
 }
 
+func TestMediaLoadAttachmentsFailsWhenImagesCannotBeLoaded(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "nope", http.StatusBadGateway)
+	}))
+	defer server.Close()
+
+	app := &App{
+		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		http:   server.Client(),
+	}
+	registry := codex.NewToolRegistry()
+	app.registerMediaTools(registry)
+
+	_, err := registry.Call(context.Background(), "media.load_attachments", mustJSONRaw(t, map[string]any{
+		"urls": []string{server.URL + "/a.png"},
+	}))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "failed to load image attachments") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func mustJSONRaw(t *testing.T, value any) json.RawMessage {
 	t.Helper()
 	raw, err := json.Marshal(value)

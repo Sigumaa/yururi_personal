@@ -45,262 +45,274 @@ func (a *App) handleMonthlyReviewJob(ctx context.Context, job jobs.Job) (jobs.Re
 }
 
 func (a *App) handleOpenLoopReviewJob(ctx context.Context, job jobs.Job) (jobs.Result, error) {
-	loops, err := a.store.ListFacts(ctx, "open_loop", 12)
-	if err != nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 72*time.Hour))}, err
-	}
-	if len(loops) == 0 {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 72*time.Hour))}, nil
-	}
-	recentOwnerMessages, err := a.store.RecentMessagesByAuthor(ctx, a.cfg.Discord.OwnerUserID, "", 10)
-	if err != nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 72*time.Hour))}, err
-	}
-	prompt := buildOpenLoopReviewPrompt(loops, recentOwnerMessages)
-	nextRun := time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 72*time.Hour))
-	return a.runNarrativeJob(ctx, job, "open_loop", prompt, nextRun, false)
+	return a.runReviewJob(ctx, job, "open_loop", 72*time.Hour, func(ctx context.Context) (string, bool, error) {
+		loops, err := a.store.ListFacts(ctx, "open_loop", 12)
+		if err != nil {
+			return "", false, err
+		}
+		if len(loops) == 0 {
+			return "", false, nil
+		}
+		recentOwnerMessages, err := a.store.RecentMessagesByAuthor(ctx, a.cfg.Discord.OwnerUserID, "", 10)
+		if err != nil {
+			return "", false, err
+		}
+		return buildOpenLoopReviewPrompt(loops, recentOwnerMessages), true, nil
+	})
 }
 
 func (a *App) handleCuriosityReviewJob(ctx context.Context, job jobs.Job) (jobs.Result, error) {
-	curiosities, err := a.store.ListFacts(ctx, "curiosity", 12)
-	if err != nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 24*time.Hour))}, err
-	}
-	openLoops, err := a.store.ListFacts(ctx, "open_loop", 8)
-	if err != nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 24*time.Hour))}, err
-	}
-	recentOwnerMessages, err := a.store.RecentMessagesByAuthor(ctx, a.cfg.Discord.OwnerUserID, "", 12)
-	if err != nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 24*time.Hour))}, err
-	}
-	prompt := buildCuriosityReviewPrompt(curiosities, openLoops, recentOwnerMessages)
-	nextRun := time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 24*time.Hour))
-	return a.runNarrativeJob(ctx, job, "curiosity_review", prompt, nextRun, false)
+	return a.runReviewJob(ctx, job, "curiosity_review", 24*time.Hour, func(ctx context.Context) (string, bool, error) {
+		curiosities, err := a.store.ListFacts(ctx, "curiosity", 12)
+		if err != nil {
+			return "", false, err
+		}
+		openLoops, err := a.store.ListFacts(ctx, "open_loop", 8)
+		if err != nil {
+			return "", false, err
+		}
+		recentOwnerMessages, err := a.store.RecentMessagesByAuthor(ctx, a.cfg.Discord.OwnerUserID, "", 12)
+		if err != nil {
+			return "", false, err
+		}
+		return buildCuriosityReviewPrompt(curiosities, openLoops, recentOwnerMessages), true, nil
+	})
 }
 
 func (a *App) handleInitiativeReviewJob(ctx context.Context, job jobs.Job) (jobs.Result, error) {
-	initiatives, err := a.store.ListFacts(ctx, "initiative", 12)
-	if err != nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 48*time.Hour))}, err
-	}
-	candidates, err := a.store.ListFacts(ctx, "automation_candidate", 12)
-	if err != nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 48*time.Hour))}, err
-	}
-	openLoops, err := a.store.ListFacts(ctx, "open_loop", 8)
-	if err != nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 48*time.Hour))}, err
-	}
-	contextGaps, err := a.store.ListFacts(ctx, "context_gap", 8)
-	if err != nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 48*time.Hour))}, err
-	}
-	prompt := buildInitiativeReviewPrompt(initiatives, candidates, openLoops, contextGaps)
-	nextRun := time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 48*time.Hour))
-	return a.runNarrativeJob(ctx, job, "initiative_review", prompt, nextRun, false)
+	return a.runReviewJob(ctx, job, "initiative_review", 48*time.Hour, func(ctx context.Context) (string, bool, error) {
+		initiatives, err := a.store.ListFacts(ctx, "initiative", 12)
+		if err != nil {
+			return "", false, err
+		}
+		candidates, err := a.store.ListFacts(ctx, "automation_candidate", 12)
+		if err != nil {
+			return "", false, err
+		}
+		openLoops, err := a.store.ListFacts(ctx, "open_loop", 8)
+		if err != nil {
+			return "", false, err
+		}
+		contextGaps, err := a.store.ListFacts(ctx, "context_gap", 8)
+		if err != nil {
+			return "", false, err
+		}
+		return buildInitiativeReviewPrompt(initiatives, candidates, openLoops, contextGaps), true, nil
+	})
 }
 
 func (a *App) handleSoftReminderReviewJob(ctx context.Context, job jobs.Job) (jobs.Result, error) {
-	reminders, err := a.store.ListFacts(ctx, "soft_reminder", 12)
-	if err != nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 24*time.Hour))}, err
-	}
-	routines, err := a.store.ListFacts(ctx, "routine", 8)
-	if err != nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 24*time.Hour))}, err
-	}
-	recentOwnerMessages, err := a.store.RecentMessagesByAuthor(ctx, a.cfg.Discord.OwnerUserID, "", 10)
-	if err != nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 24*time.Hour))}, err
-	}
-	prompt := buildSoftReminderReviewPrompt(reminders, routines, recentOwnerMessages)
-	nextRun := time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 24*time.Hour))
-	return a.runNarrativeJob(ctx, job, "soft_reminder_review", prompt, nextRun, false)
+	return a.runReviewJob(ctx, job, "soft_reminder_review", 24*time.Hour, func(ctx context.Context) (string, bool, error) {
+		reminders, err := a.store.ListFacts(ctx, "soft_reminder", 12)
+		if err != nil {
+			return "", false, err
+		}
+		routines, err := a.store.ListFacts(ctx, "routine", 8)
+		if err != nil {
+			return "", false, err
+		}
+		recentOwnerMessages, err := a.store.RecentMessagesByAuthor(ctx, a.cfg.Discord.OwnerUserID, "", 10)
+		if err != nil {
+			return "", false, err
+		}
+		return buildSoftReminderReviewPrompt(reminders, routines, recentOwnerMessages), true, nil
+	})
 }
 
 func (a *App) handleTopicSynthesisReviewJob(ctx context.Context, job jobs.Job) (jobs.Result, error) {
-	topics, err := a.store.ListFacts(ctx, "topic_thread", 12)
-	if err != nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 72*time.Hour))}, err
-	}
-	recentOwnerMessages, err := a.store.RecentMessagesByAuthor(ctx, a.cfg.Discord.OwnerUserID, "", 16)
-	if err != nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 72*time.Hour))}, err
-	}
-	summaries, err := a.store.RecentSummaries(ctx, "weekly", 4)
-	if err != nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 72*time.Hour))}, err
-	}
-	prompt := buildTopicSynthesisReviewPrompt(topics, recentOwnerMessages, summaries)
-	nextRun := time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 72*time.Hour))
-	return a.runNarrativeJob(ctx, job, "topic_synthesis_review", prompt, nextRun, false)
+	return a.runReviewJob(ctx, job, "topic_synthesis_review", 72*time.Hour, func(ctx context.Context) (string, bool, error) {
+		topics, err := a.store.ListFacts(ctx, "topic_thread", 12)
+		if err != nil {
+			return "", false, err
+		}
+		recentOwnerMessages, err := a.store.RecentMessagesByAuthor(ctx, a.cfg.Discord.OwnerUserID, "", 16)
+		if err != nil {
+			return "", false, err
+		}
+		summaries, err := a.store.RecentSummaries(ctx, "weekly", 4)
+		if err != nil {
+			return "", false, err
+		}
+		return buildTopicSynthesisReviewPrompt(topics, recentOwnerMessages, summaries), true, nil
+	})
 }
 
 func (a *App) handleBaselineReviewJob(ctx context.Context, job jobs.Job) (jobs.Result, error) {
-	baselines, err := a.store.ListFacts(ctx, "behavior_baseline", 12)
-	if err != nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 72*time.Hour))}, err
-	}
-	deviations, err := a.store.ListFacts(ctx, "behavior_deviation", 12)
-	if err != nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 72*time.Hour))}, err
-	}
-	routines, err := a.store.ListFacts(ctx, "routine", 8)
-	if err != nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 72*time.Hour))}, err
-	}
-	recentOwnerMessages, err := a.store.RecentMessagesByAuthor(ctx, a.cfg.Discord.OwnerUserID, "", 10)
-	if err != nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 72*time.Hour))}, err
-	}
-	prompt := buildBaselineReviewPrompt(baselines, deviations, routines, recentOwnerMessages)
-	nextRun := time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 72*time.Hour))
-	return a.runNarrativeJob(ctx, job, "baseline_review", prompt, nextRun, false)
+	return a.runReviewJob(ctx, job, "baseline_review", 72*time.Hour, func(ctx context.Context) (string, bool, error) {
+		baselines, err := a.store.ListFacts(ctx, "behavior_baseline", 12)
+		if err != nil {
+			return "", false, err
+		}
+		deviations, err := a.store.ListFacts(ctx, "behavior_deviation", 12)
+		if err != nil {
+			return "", false, err
+		}
+		routines, err := a.store.ListFacts(ctx, "routine", 8)
+		if err != nil {
+			return "", false, err
+		}
+		recentOwnerMessages, err := a.store.RecentMessagesByAuthor(ctx, a.cfg.Discord.OwnerUserID, "", 10)
+		if err != nil {
+			return "", false, err
+		}
+		return buildBaselineReviewPrompt(baselines, deviations, routines, recentOwnerMessages), true, nil
+	})
 }
 
 func (a *App) handlePolicySynthesisReviewJob(ctx context.Context, job jobs.Job) (jobs.Result, error) {
-	learnedPolicies, err := a.store.ListFacts(ctx, "learned_policy", 16)
-	if err != nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 96*time.Hour))}, err
-	}
-	decisions, err := a.store.ListFacts(ctx, "decision", 12)
-	if err != nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 96*time.Hour))}, err
-	}
-	misfires, err := a.store.ListFacts(ctx, "misfire", 12)
-	if err != nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 96*time.Hour))}, err
-	}
-	reflections, err := a.store.RecentSummaries(ctx, "reflection", 8)
-	if err != nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 96*time.Hour))}, err
-	}
-	prompt := buildPolicySynthesisReviewPrompt(learnedPolicies, decisions, misfires, reflections)
-	nextRun := time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 96*time.Hour))
-	return a.runNarrativeJob(ctx, job, "policy_synthesis_review", prompt, nextRun, false)
+	return a.runReviewJob(ctx, job, "policy_synthesis_review", 96*time.Hour, func(ctx context.Context) (string, bool, error) {
+		learnedPolicies, err := a.store.ListFacts(ctx, "learned_policy", 16)
+		if err != nil {
+			return "", false, err
+		}
+		decisions, err := a.store.ListFacts(ctx, "decision", 12)
+		if err != nil {
+			return "", false, err
+		}
+		misfires, err := a.store.ListFacts(ctx, "misfire", 12)
+		if err != nil {
+			return "", false, err
+		}
+		reflections, err := a.store.RecentSummaries(ctx, "reflection", 8)
+		if err != nil {
+			return "", false, err
+		}
+		return buildPolicySynthesisReviewPrompt(learnedPolicies, decisions, misfires, reflections), true, nil
+	})
 }
 
 func (a *App) handleWorkspaceReviewJob(ctx context.Context, job jobs.Job) (jobs.Result, error) {
-	workspaceNotes, err := a.store.ListFacts(ctx, "workspace_note", 16)
-	if err != nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 48*time.Hour))}, err
-	}
-	initiatives, err := a.store.ListFacts(ctx, "initiative", 12)
-	if err != nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 48*time.Hour))}, err
-	}
-	topics, err := a.store.ListFacts(ctx, "topic_thread", 12)
-	if err != nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 48*time.Hour))}, err
-	}
-	recentOwnerMessages, err := a.store.RecentMessagesByAuthor(ctx, a.cfg.Discord.OwnerUserID, "", 12)
-	if err != nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 48*time.Hour))}, err
-	}
-	prompt := buildWorkspaceReviewPrompt(workspaceNotes, initiatives, topics, recentOwnerMessages)
-	nextRun := time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 48*time.Hour))
-	return a.runNarrativeJob(ctx, job, "workspace_review", prompt, nextRun, false)
+	return a.runReviewJob(ctx, job, "workspace_review", 48*time.Hour, func(ctx context.Context) (string, bool, error) {
+		workspaceNotes, err := a.store.ListFacts(ctx, "workspace_note", 16)
+		if err != nil {
+			return "", false, err
+		}
+		initiatives, err := a.store.ListFacts(ctx, "initiative", 12)
+		if err != nil {
+			return "", false, err
+		}
+		topics, err := a.store.ListFacts(ctx, "topic_thread", 12)
+		if err != nil {
+			return "", false, err
+		}
+		recentOwnerMessages, err := a.store.RecentMessagesByAuthor(ctx, a.cfg.Discord.OwnerUserID, "", 12)
+		if err != nil {
+			return "", false, err
+		}
+		return buildWorkspaceReviewPrompt(workspaceNotes, initiatives, topics, recentOwnerMessages), true, nil
+	})
 }
 
 func (a *App) handleProposalBoundaryReviewJob(ctx context.Context, job jobs.Job) (jobs.Result, error) {
-	proposalBoundaries, err := a.store.ListFacts(ctx, "proposal_boundary", 16)
-	if err != nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 96*time.Hour))}, err
-	}
-	initiatives, err := a.store.ListFacts(ctx, "initiative", 12)
-	if err != nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 96*time.Hour))}, err
-	}
-	decisions, err := a.store.ListFacts(ctx, "decision", 12)
-	if err != nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 96*time.Hour))}, err
-	}
-	misfires, err := a.store.ListFacts(ctx, "misfire", 12)
-	if err != nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 96*time.Hour))}, err
-	}
-	contextGaps, err := a.store.ListFacts(ctx, "context_gap", 8)
-	if err != nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 96*time.Hour))}, err
-	}
-	prompt := buildProposalBoundaryReviewPrompt(proposalBoundaries, initiatives, decisions, misfires, contextGaps)
-	nextRun := time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 96*time.Hour))
-	return a.runNarrativeJob(ctx, job, "proposal_boundary_review", prompt, nextRun, false)
+	return a.runReviewJob(ctx, job, "proposal_boundary_review", 96*time.Hour, func(ctx context.Context) (string, bool, error) {
+		proposalBoundaries, err := a.store.ListFacts(ctx, "proposal_boundary", 16)
+		if err != nil {
+			return "", false, err
+		}
+		initiatives, err := a.store.ListFacts(ctx, "initiative", 12)
+		if err != nil {
+			return "", false, err
+		}
+		decisions, err := a.store.ListFacts(ctx, "decision", 12)
+		if err != nil {
+			return "", false, err
+		}
+		misfires, err := a.store.ListFacts(ctx, "misfire", 12)
+		if err != nil {
+			return "", false, err
+		}
+		contextGaps, err := a.store.ListFacts(ctx, "context_gap", 8)
+		if err != nil {
+			return "", false, err
+		}
+		return buildProposalBoundaryReviewPrompt(proposalBoundaries, initiatives, decisions, misfires, contextGaps), true, nil
+	})
 }
 
 func (a *App) handleChannelCurationJob(ctx context.Context, job jobs.Job) (jobs.Result, error) {
-	if a.discord == nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 168*time.Hour))}, errors.New("discord is not connected")
-	}
-	channels, err := a.discord.ListChannels(ctx, a.cfg.Discord.GuildID)
-	if err != nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 168*time.Hour))}, err
-	}
-	profiles, err := a.store.ListChannelProfiles(ctx)
-	if err != nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 168*time.Hour))}, err
-	}
-	activity, err := a.store.ChannelActivitySince(ctx, time.Now().UTC().Add(-14*24*time.Hour), 256)
-	if err != nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 168*time.Hour))}, err
-	}
-	prompt := buildChannelCurationPrompt(channels, profiles, activity)
-	nextRun := time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 168*time.Hour))
-	return a.runNarrativeJob(ctx, job, "space", prompt, nextRun, false)
+	return a.runReviewJob(ctx, job, "space", 168*time.Hour, func(ctx context.Context) (string, bool, error) {
+		if a.discord == nil {
+			return "", false, errors.New("discord is not connected")
+		}
+		channels, err := a.discord.ListChannels(ctx, a.cfg.Discord.GuildID)
+		if err != nil {
+			return "", false, err
+		}
+		profiles, err := a.store.ListChannelProfiles(ctx)
+		if err != nil {
+			return "", false, err
+		}
+		activity, err := a.store.ChannelActivitySince(ctx, time.Now().UTC().Add(-14*24*time.Hour), 256)
+		if err != nil {
+			return "", false, err
+		}
+		return buildChannelCurationPrompt(channels, profiles, activity), true, nil
+	})
 }
 
 func (a *App) handleDecisionReviewJob(ctx context.Context, job jobs.Job) (jobs.Result, error) {
-	decisions, err := a.store.ListFacts(ctx, "decision", 16)
-	if err != nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 120*time.Hour))}, err
-	}
-	recentOwnerMessages, err := a.store.RecentMessagesByAuthor(ctx, a.cfg.Discord.OwnerUserID, "", 10)
-	if err != nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 120*time.Hour))}, err
-	}
-	prompt := buildDecisionReviewPrompt(decisions, recentOwnerMessages)
-	nextRun := time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 120*time.Hour))
-	return a.runNarrativeJob(ctx, job, "decision_review", prompt, nextRun, false)
+	return a.runReviewJob(ctx, job, "decision_review", 120*time.Hour, func(ctx context.Context) (string, bool, error) {
+		decisions, err := a.store.ListFacts(ctx, "decision", 16)
+		if err != nil {
+			return "", false, err
+		}
+		recentOwnerMessages, err := a.store.RecentMessagesByAuthor(ctx, a.cfg.Discord.OwnerUserID, "", 10)
+		if err != nil {
+			return "", false, err
+		}
+		return buildDecisionReviewPrompt(decisions, recentOwnerMessages), true, nil
+	})
 }
 
 func (a *App) handleSelfImprovementReviewJob(ctx context.Context, job jobs.Job) (jobs.Result, error) {
-	candidates, err := a.store.ListFacts(ctx, "automation_candidate", 16)
-	if err != nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 168*time.Hour))}, err
-	}
-	reflections, err := a.store.RecentSummaries(ctx, "reflection", 8)
-	if err != nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 168*time.Hour))}, err
-	}
-	growth, err := a.store.RecentSummaries(ctx, "growth", 8)
-	if err != nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 168*time.Hour))}, err
-	}
-	prompt := buildSelfImprovementReviewPrompt(candidates, reflections, growth)
-	nextRun := time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 168*time.Hour))
-	return a.runNarrativeJob(ctx, job, "self_improvement", prompt, nextRun, false)
+	return a.runReviewJob(ctx, job, "self_improvement", 168*time.Hour, func(ctx context.Context) (string, bool, error) {
+		candidates, err := a.store.ListFacts(ctx, "automation_candidate", 16)
+		if err != nil {
+			return "", false, err
+		}
+		reflections, err := a.store.RecentSummaries(ctx, "reflection", 8)
+		if err != nil {
+			return "", false, err
+		}
+		growth, err := a.store.RecentSummaries(ctx, "growth", 8)
+		if err != nil {
+			return "", false, err
+		}
+		return buildSelfImprovementReviewPrompt(candidates, reflections, growth), true, nil
+	})
 }
 
 func (a *App) handleChannelRoleReviewJob(ctx context.Context, job jobs.Job) (jobs.Result, error) {
-	if a.discord == nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 168*time.Hour))}, errors.New("discord is not connected")
-	}
-	channels, err := a.discord.ListChannels(ctx, a.cfg.Discord.GuildID)
+	return a.runReviewJob(ctx, job, "channel_role_review", 168*time.Hour, func(ctx context.Context) (string, bool, error) {
+		if a.discord == nil {
+			return "", false, errors.New("discord is not connected")
+		}
+		channels, err := a.discord.ListChannels(ctx, a.cfg.Discord.GuildID)
+		if err != nil {
+			return "", false, err
+		}
+		profiles, err := a.store.ListChannelProfiles(ctx)
+		if err != nil {
+			return "", false, err
+		}
+		activity, err := a.store.ChannelActivitySince(ctx, time.Now().UTC().Add(-14*24*time.Hour), 256)
+		if err != nil {
+			return "", false, err
+		}
+		return buildChannelRoleReviewPrompt(channels, profiles, activity), true, nil
+	})
+}
+
+func (a *App) runReviewJob(ctx context.Context, job jobs.Job, period string, defaultInterval time.Duration, build func(context.Context) (string, bool, error)) (jobs.Result, error) {
+	nextRun := time.Now().UTC().Add(mustDuration(job.ScheduleExpr, defaultInterval))
+	prompt, ok, err := build(ctx)
 	if err != nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 168*time.Hour))}, err
+		return jobs.Result{NextRunAt: nextRun}, err
 	}
-	profiles, err := a.store.ListChannelProfiles(ctx)
-	if err != nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 168*time.Hour))}, err
+	if !ok {
+		return jobs.Result{NextRunAt: nextRun}, nil
 	}
-	activity, err := a.store.ChannelActivitySince(ctx, time.Now().UTC().Add(-14*24*time.Hour), 256)
-	if err != nil {
-		return jobs.Result{NextRunAt: time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 168*time.Hour))}, err
-	}
-	prompt := buildChannelRoleReviewPrompt(channels, profiles, activity)
-	nextRun := time.Now().UTC().Add(mustDuration(job.ScheduleExpr, 168*time.Hour))
-	return a.runNarrativeJob(ctx, job, "channel_role_review", prompt, nextRun, false)
+	return a.runNarrativeJob(ctx, job, period, prompt, nextRun, false)
 }
 
 func (a *App) runNarrativeJob(ctx context.Context, job jobs.Job, period string, prompt string, nextRun time.Time, done bool) (jobs.Result, error) {

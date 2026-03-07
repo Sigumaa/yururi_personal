@@ -101,9 +101,6 @@ func EnsureLayout(cfg config.Config) (config.Paths, error) {
 			return config.Paths{}, fmt.Errorf("create dir %s: %w", dir, err)
 		}
 	}
-	if err := cleanupLegacyWorkspace(paths); err != nil {
-		return config.Paths{}, err
-	}
 
 	files := []struct {
 		path    string
@@ -120,14 +117,6 @@ func EnsureLayout(cfg config.Config) (config.Paths, error) {
 		}
 	}
 	return paths, nil
-}
-
-func cleanupLegacyWorkspace(paths config.Paths) error {
-	legacyAnyDir := filepath.Join(paths.Workspace, "any")
-	if err := os.RemoveAll(legacyAnyDir); err != nil {
-		return fmt.Errorf("remove legacy any dir: %w", err)
-	}
-	return nil
 }
 
 func writeManagedFile(path string, content string) error {

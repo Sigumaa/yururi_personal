@@ -18,7 +18,10 @@ func (a *App) runConversationTurn(ctx context.Context, threadID string, msg memo
 	a.logger.Info("conversation turn start", "thread_id", threadID, "channel", msg.ChannelName, "message_id", msg.ID, "prompt_bytes", len(prompt))
 	a.logger.Debug("conversation prompt", "thread_id", threadID, "channel", msg.ChannelName, "message_id", msg.ID, "prompt_preview", previewText(prompt, 1800))
 	input := []codex.InputItem{codex.TextInput(prompt)}
-	imageInputs, imageNotes := a.buildImageInputs(ctx, currentImageURLs)
+	imageInputs, imageNotes, err := a.buildImageInputs(ctx, currentImageURLs)
+	if err != nil {
+		a.logger.Warn("conversation image inputs unavailable", "thread_id", threadID, "channel", msg.ChannelName, "message_id", msg.ID, "error", err, "notes", strings.Join(imageNotes, " | "))
+	}
 	if len(imageInputs) > 0 {
 		input = append(input, imageInputs...)
 		a.logger.Debug("conversation image inputs ready", "thread_id", threadID, "channel", msg.ChannelName, "message_id", msg.ID, "count", len(imageInputs), "notes", strings.Join(imageNotes, " | "))

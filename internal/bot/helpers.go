@@ -67,10 +67,10 @@ func attachmentURLs(attachments []*discordgo.MessageAttachment) []string {
 	return out
 }
 
-func mustDuration(value string, fallback time.Duration) time.Duration {
+func mustDuration(value string, defaultValue time.Duration) time.Duration {
 	d, err := time.ParseDuration(value)
 	if err != nil || d <= 0 {
-		return fallback
+		return defaultValue
 	}
 	return d
 }
