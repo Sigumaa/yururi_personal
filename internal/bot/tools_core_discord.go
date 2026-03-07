@@ -188,4 +188,6 @@ func (a *App) registerCoreDiscordTools(registry *codex.ToolRegistry) {
 		}
 		return textTool("ok"), nil
 	})
+
+	a.registerVoiceDiscordTools(registry)
 }

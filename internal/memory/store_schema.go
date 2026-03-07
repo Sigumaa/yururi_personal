@@ -73,6 +73,37 @@ func (s *Store) migrate(ctx context.Context) error {
 			started_at TEXT NOT NULL,
 			ended_at TEXT
 		);`,
+		`CREATE TABLE IF NOT EXISTS voice_sessions (
+			id TEXT PRIMARY KEY,
+			guild_id TEXT NOT NULL,
+			channel_id TEXT NOT NULL,
+			channel_name TEXT NOT NULL DEFAULT '',
+			state TEXT NOT NULL,
+			source TEXT NOT NULL DEFAULT '',
+			started_at TEXT NOT NULL,
+			ended_at TEXT,
+			metadata_json TEXT NOT NULL DEFAULT '{}'
+		);`,
+		`CREATE TABLE IF NOT EXISTS voice_transcripts (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			session_id TEXT NOT NULL,
+			speaker_id TEXT NOT NULL DEFAULT '',
+			speaker_name TEXT NOT NULL DEFAULT '',
+			role TEXT NOT NULL DEFAULT '',
+			content TEXT NOT NULL,
+			started_at TEXT NOT NULL,
+			ended_at TEXT,
+			metadata_json TEXT NOT NULL DEFAULT '{}'
+		);`,
+		`CREATE TABLE IF NOT EXISTS voice_events (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			session_id TEXT NOT NULL,
+			type TEXT NOT NULL,
+			user_id TEXT NOT NULL DEFAULT '',
+			channel_id TEXT NOT NULL DEFAULT '',
+			created_at TEXT NOT NULL,
+			metadata_json TEXT NOT NULL DEFAULT '{}'
+		);`,
 		`CREATE TABLE IF NOT EXISTS kv (
 			key TEXT PRIMARY KEY,
 			value TEXT NOT NULL

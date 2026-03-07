@@ -72,6 +72,40 @@ type PresenceSnapshot struct {
 	EndedAt    *time.Time
 }
 
+type VoiceSession struct {
+	ID          string
+	GuildID     string
+	ChannelID   string
+	ChannelName string
+	State       string
+	Source      string
+	StartedAt   time.Time
+	EndedAt     *time.Time
+	Metadata    map[string]any
+}
+
+type VoiceTranscriptSegment struct {
+	ID          int64
+	SessionID   string
+	SpeakerID   string
+	SpeakerName string
+	Role        string
+	Content     string
+	StartedAt   time.Time
+	EndedAt     *time.Time
+	Metadata    map[string]any
+}
+
+type VoiceEvent struct {
+	ID        int64
+	SessionID string
+	Type      string
+	UserID    string
+	ChannelID string
+	CreatedAt time.Time
+	Metadata  map[string]any
+}
+
 func Open(path string) (*Store, error) {
 	db, err := sql.Open("sqlite", path)
 	if err != nil {

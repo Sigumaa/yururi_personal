@@ -44,8 +44,10 @@ func Capabilities(tools []codex.ToolSpec) string {
 	lines = append(lines, "- 必要なら 1 回の会話中に複数回メッセージを送り、進捗と結果を分けて伝えられる。")
 	lines = append(lines, "- チャンネルごとの会話 thread を持ち、会話の流れを少し継続的に扱える。")
 	lines = append(lines, "- チャンネル一覧の確認、最近の会話の参照、ユーザーの presence と activity 詳細の確認ができる。Spotify のような listening activity では曲名や状態も見られる。")
+	lines = append(lines, "- Discord のボイスチャンネル一覧、VC 参加メンバー、ユーザーの現在の VC、bot 自身の VC session 状態を確認できる。必要なら VC へ参加・退出できる。")
 	lines = append(lines, "- カテゴリ作成、テキストチャンネル作成、rename、topic 更新、チャンネル移動、一括スペース整備、archive 寄せ、チャンネル検索、カテゴリ構造の俯瞰、orphan channel の検出、profile 候補の提案、space snapshot の保存と差分確認ができる。")
 	lines = append(lines, "- SQLite にメッセージ、fact、channel profile、presence、summary、job を保存できる。")
+	lines = append(lines, "- VC session、voice event、transcript segment を保存し、あとから状態や履歴を参照できる。")
 	lines = append(lines, "- open loop、pending promise、routine、curiosity、agent goal、soft reminder、topic thread、initiative、behavior baseline、behavior deviation、learned policy、workspace note、proposal boundary、反省メモ、成長ログ、判断履歴、自動化候補、context gap、misfire のような長期記憶の下書きを保存し、検索できる。")
 	lines = append(lines, "- 定期 job を登録して、release watch、URL watch、daily/weekly/monthly summary、open loop review、curiosity review、initiative review、soft reminder review、topic synthesis review、baseline review、policy synthesis review、workspace review、proposal boundary review、decision review、self improvement review、channel role review、reminder、space review、background Codex task、periodic Codex task のような継続タスクを走らせられる。")
 	lines = append(lines, "- Codex App Server の file change / command execution を使って、runtime/workspace 内に補助 script、CLI、skill、下書きを書き、試し、必要ならそのまま残せる。")
@@ -58,6 +60,7 @@ func Capabilities(tools []codex.ToolSpec) string {
 	lines = append(lines, "- Discord 専用 MCP サーバーはまだない。現在の外部操作は Codex App Server の dynamic tool call を使う。")
 	lines = append(lines, "- チャンネル削除や不可逆な破壊操作の専用 tool はまだない。")
 	lines = append(lines, "- 自己拡張、skill 自作、sub-agent 自律起動は未実装であり、できる前提にしない。")
+	lines = append(lines, "- Discord VC の低遅延会話本体はまだ組み上げ途中であり、現時点では join / leave / 状態把握 / transcript 基盤が中心。")
 	lines = append(lines, "- ユーザーの要望メモや構想は、この文書に含まれていない限り実能力ではない。")
 	lines = append(lines, "")
 	lines = append(lines, "## Available Tools")
@@ -125,6 +128,7 @@ func ToolGuide(tools []codex.ToolSpec) string {
 	lines = append(lines, "- 継続監視や留守番は jobs 系へ、今この場で終わることは今やる。")
 	lines = append(lines, "- Discord の変更に失敗したら、まず権限、対象 channel、現在構造を見直す。")
 	lines = append(lines, "- presence を見るときは、status だけでなく activity の details、state、時刻も読んでよい。")
+	lines = append(lines, "- VC に関する判断では、list_voice_channels、get_voice_channel_members、voice_session_status、join_voice、leave_voice を使える。")
 	lines = append(lines, "")
 	lines = append(lines, "## よくある流れ")
 	lines = append(lines, "- 依頼理解 -> Discord 観測 -> 必要なら記憶参照 -> 実行 -> 結果共有")
@@ -173,6 +177,7 @@ func AutonomyGuide() string {
 		"- 調査、俯瞰、下書き、まとめ、space snapshot、非破壊な整理案づくり",
 		"- runtime/workspace 内の補助 script、CLI、メモ、作業途中メモの作成",
 		"- 監視や留守番の下準備",
+		"- VC の参加、退出、状態確認、transcript 記録のような非破壊な音声基盤操作",
 		"",
 		"## 提案止まりにしやすいもの",
 		"- 大きな空間再編",

@@ -1,9 +1,12 @@
 package bot
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
+	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -13,6 +16,7 @@ import (
 	"github.com/Sigumaa/yururi_personal/internal/jobs"
 	"github.com/Sigumaa/yururi_personal/internal/memory"
 	runtimecfg "github.com/Sigumaa/yururi_personal/internal/runtime"
+	"github.com/Sigumaa/yururi_personal/internal/voice"
 )
 
 type App struct {
@@ -25,6 +29,7 @@ type App struct {
 	tools     *codex.ToolRegistry
 	codex     *codex.Client
 	discord   discordsvc.Service
+	voice     *voice.Engine
 	scheduler *jobs.Scheduler
 	http      *http.Client
 
@@ -78,6 +83,9 @@ func (a *App) Close() error {
 	if a.codex != nil {
 		errs = append(errs, a.codex.Close())
 	}
+	if a.voice != nil {
+		errs = append(errs, a.voice.Shutdown(context.Background()))
+	}
 	if a.discord != nil {
 		errs = append(errs, a.discord.Close())
 	}
@@ -85,4 +93,17 @@ func (a *App) Close() error {
 		errs = append(errs, a.store.Close())
 	}
 	return errors.Join(errs...)
+}
+
+func (a *App) buildVoiceEngine() *voice.Engine {
+	return voice.NewEngine(
+		a.store,
+		a.discord,
+		voice.NewRealtimeClient(voice.RealtimeOptions{
+			APIKey: strings.TrimSpace(os.Getenv("OPENAI_API_KEY")),
+			Model:  voice.DefaultRealtimeModel,
+		}),
+		a.cfg.Discord.OwnerUserID,
+		a.logger,
+	)
 }

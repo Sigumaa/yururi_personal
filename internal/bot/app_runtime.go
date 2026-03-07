@@ -55,6 +55,10 @@ func (a *App) Run(ctx context.Context) error {
 	a.discord.AddPresenceHandler(func(s *discordgo.Session, p *discordgo.PresenceUpdate) {
 		go a.processPresence(p)
 	})
+	a.discord.AddVoiceStateHandler(func(s *discordgo.Session, v *discordgo.VoiceStateUpdate) {
+		go a.processVoiceState(v)
+	})
+	a.voice = a.buildVoiceEngine()
 	if err := a.discord.Open(); err != nil {
 		return err
 	}

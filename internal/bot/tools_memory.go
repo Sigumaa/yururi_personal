@@ -7,4 +7,5 @@ func (a *App) registerMemoryExtraTools(registry *codex.ToolRegistry) {
 	a.registerMemorySummaryTools(registry)
 	a.registerMemoryProfileTools(registry)
 	a.registerMemoryMessageTools(registry)
+	a.registerMemoryVoiceTools(registry)
 }

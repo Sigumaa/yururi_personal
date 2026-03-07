@@ -23,6 +23,8 @@ func (d *discordStub) Open() error                                              
 func (d *discordStub) Close() error                                                           { return nil }
 func (d *discordStub) AddMessageHandler(func(*discordgo.Session, *discordgo.MessageCreate))   {}
 func (d *discordStub) AddPresenceHandler(func(*discordgo.Session, *discordgo.PresenceUpdate)) {}
+func (d *discordStub) AddVoiceStateHandler(func(*discordgo.Session, *discordgo.VoiceStateUpdate)) {
+}
 func (d *discordStub) SendMessage(_ context.Context, channelID string, content string) (string, error) {
 	d.sentChannel = channelID
 	d.sentContent = content
@@ -56,6 +58,22 @@ func (d *discordStub) RecentMessages(context.Context, string, int) ([]discordsvc
 }
 func (d *discordStub) ListChannels(context.Context, string) ([]discordsvc.Channel, error) {
 	return d.channels, nil
+}
+func (d *discordStub) ListVoiceChannels(context.Context, string) ([]discordsvc.VoiceChannel, error) {
+	return nil, nil
+}
+func (d *discordStub) VoiceChannelMembers(context.Context, string, string) ([]discordsvc.VoiceMember, error) {
+	return nil, nil
+}
+func (d *discordStub) CurrentMemberVoiceState(context.Context, string, string) (discordsvc.VoiceState, bool, error) {
+	return discordsvc.VoiceState{}, false, nil
+}
+func (d *discordStub) JoinVoice(context.Context, string, string, bool, bool) (discordsvc.VoiceSession, error) {
+	return discordsvc.VoiceSession{}, nil
+}
+func (d *discordStub) LeaveVoice(context.Context, string) error { return nil }
+func (d *discordStub) CurrentVoiceSession(context.Context, string) (discordsvc.VoiceSession, bool, error) {
+	return discordsvc.VoiceSession{}, false, nil
 }
 func (d *discordStub) CurrentPresence(context.Context, string, string) (discordsvc.Presence, error) {
 	return discordsvc.Presence{}, nil

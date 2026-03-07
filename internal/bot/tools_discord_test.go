@@ -16,6 +16,7 @@ import (
 	discordsvc "github.com/Sigumaa/yururi_personal/internal/discord"
 	"github.com/Sigumaa/yururi_personal/internal/memory"
 	presencemodel "github.com/Sigumaa/yururi_personal/internal/presence"
+	"github.com/Sigumaa/yururi_personal/internal/voice"
 	"github.com/bwmarrin/discordgo"
 )
 
@@ -33,6 +34,7 @@ func newDiscordToolsStub() *discordToolsStub {
 		channels: map[string]discordsvc.Channel{
 			"c-1": {ID: "c-1", Name: "general", Type: discordgo.ChannelTypeGuildText},
 			"c-2": {ID: "c-2", Name: "notes", Type: discordgo.ChannelTypeGuildText},
+			"v-1": {ID: "v-1", Name: "voice", Type: discordgo.ChannelTypeGuildVoice},
 		},
 		nextID: 10,
 	}
@@ -42,6 +44,8 @@ func (d *discordToolsStub) Open() error                                         
 func (d *discordToolsStub) Close() error                                                           { return nil }
 func (d *discordToolsStub) AddMessageHandler(func(*discordgo.Session, *discordgo.MessageCreate))   {}
 func (d *discordToolsStub) AddPresenceHandler(func(*discordgo.Session, *discordgo.PresenceUpdate)) {}
+func (d *discordToolsStub) AddVoiceStateHandler(func(*discordgo.Session, *discordgo.VoiceStateUpdate)) {
+}
 func (d *discordToolsStub) SendMessage(context.Context, string, string) (string, error) {
 	return "m-1", nil
 }
@@ -118,6 +122,24 @@ func (d *discordToolsStub) ListChannels(context.Context, string) ([]discordsvc.C
 		out = append(out, channel)
 	}
 	return out, nil
+}
+func (d *discordToolsStub) ListVoiceChannels(context.Context, string) ([]discordsvc.VoiceChannel, error) {
+	return []discordsvc.VoiceChannel{
+		{ID: "v-1", Name: "voice", MemberCount: 1, Members: []discordsvc.VoiceMember{{UserID: "owner", Username: "owner", ChannelID: "v-1"}}},
+	}, nil
+}
+func (d *discordToolsStub) VoiceChannelMembers(context.Context, string, string) ([]discordsvc.VoiceMember, error) {
+	return []discordsvc.VoiceMember{{UserID: "owner", Username: "owner", ChannelID: "v-1"}}, nil
+}
+func (d *discordToolsStub) CurrentMemberVoiceState(context.Context, string, string) (discordsvc.VoiceState, bool, error) {
+	return discordsvc.VoiceState{UserID: "owner", Username: "owner", ChannelID: "v-1"}, true, nil
+}
+func (d *discordToolsStub) JoinVoice(context.Context, string, string, bool, bool) (discordsvc.VoiceSession, error) {
+	return discordsvc.VoiceSession{GuildID: "g-1", ChannelID: "v-1", ChannelName: "voice", Connected: true}, nil
+}
+func (d *discordToolsStub) LeaveVoice(context.Context, string) error { return nil }
+func (d *discordToolsStub) CurrentVoiceSession(context.Context, string) (discordsvc.VoiceSession, bool, error) {
+	return discordsvc.VoiceSession{GuildID: "g-1", ChannelID: "v-1", ChannelName: "voice", Connected: true}, true, nil
 }
 func (d *discordToolsStub) CurrentPresence(context.Context, string, string) (discordsvc.Presence, error) {
 	start := time.Date(2026, 3, 8, 1, 2, 3, 0, time.UTC)
@@ -251,4 +273,58 @@ func TestDiscordGetMemberPresenceIncludesRichDetails(t *testing.T) {
 			t.Fatalf("expected %q in presence output, got %s", want, text)
 		}
 	}
+}
+
+func TestDiscordVoiceTools(t *testing.T) {
+	discord := newDiscordToolsStub()
+	registry := codex.NewToolRegistry()
+	app := &App{
+		cfg:    config.Config{Discord: config.DiscordConfig{GuildID: "g-1", OwnerUserID: "owner"}},
+		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		store: func() *memory.Store {
+			store, err := memory.Open(filepath.Join(t.TempDir(), "voice.db"))
+			if err != nil {
+				t.Fatalf("open store: %v", err)
+			}
+			return store
+		}(),
+		discord: discord,
+	}
+	defer app.store.Close()
+	app.voice = voice.NewEngine(app.store, discord, &voiceRealtimeStub{}, "owner", slog.New(slog.NewTextHandler(io.Discard, nil)))
+	app.registerCoreDiscordTools(registry)
+
+	listResponse, err := registry.Call(context.Background(), "discord.list_voice_channels", mustJSONRaw(t, map[string]any{}))
+	if err != nil {
+		t.Fatalf("list_voice_channels: %v", err)
+	}
+	if !strings.Contains(listResponse.ContentItems[0].Text, "voice") {
+		t.Fatalf("unexpected voice channel list: %s", listResponse.ContentItems[0].Text)
+	}
+
+	if _, err := registry.Call(context.Background(), "discord.join_voice", mustJSONRaw(t, map[string]any{
+		"user_id": "owner",
+	})); err != nil {
+		t.Fatalf("join_voice: %v", err)
+	}
+
+	statusResponse, err := registry.Call(context.Background(), "discord.voice_session_status", mustJSONRaw(t, map[string]any{}))
+	if err != nil {
+		t.Fatalf("voice_session_status: %v", err)
+	}
+	if !strings.Contains(statusResponse.ContentItems[0].Text, "channel=voice (v-1)") {
+		t.Fatalf("unexpected voice session status: %s", statusResponse.ContentItems[0].Text)
+	}
+
+	if _, err := registry.Call(context.Background(), "discord.leave_voice", mustJSONRaw(t, map[string]any{})); err != nil {
+		t.Fatalf("leave_voice: %v", err)
+	}
+}
+
+type voiceRealtimeStub struct{}
+
+func (voiceRealtimeStub) Connect(context.Context) error { return nil }
+func (voiceRealtimeStub) Close() error                  { return nil }
+func (voiceRealtimeStub) Status() voice.RealtimeStatus {
+	return voice.RealtimeStatus{Configured: true, Connected: true, Model: voice.DefaultRealtimeModel}
 }

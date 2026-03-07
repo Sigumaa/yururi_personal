@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	presencemodel "github.com/Sigumaa/yururi_personal/internal/presence"
@@ -17,6 +18,7 @@ type Service interface {
 	Close() error
 	AddMessageHandler(func(*discordgo.Session, *discordgo.MessageCreate))
 	AddPresenceHandler(func(*discordgo.Session, *discordgo.PresenceUpdate))
+	AddVoiceStateHandler(func(*discordgo.Session, *discordgo.VoiceStateUpdate))
 	SendMessage(context.Context, string, string) (string, error)
 	CreateTextChannel(context.Context, string, ChannelSpec) (Channel, error)
 	EnsureTextChannel(context.Context, string, ChannelSpec) (Channel, error)
@@ -27,13 +29,21 @@ type Service interface {
 	SetChannelTopic(context.Context, string, string) (Channel, error)
 	RecentMessages(context.Context, string, int) ([]Message, error)
 	ListChannels(context.Context, string) ([]Channel, error)
+	ListVoiceChannels(context.Context, string) ([]VoiceChannel, error)
+	VoiceChannelMembers(context.Context, string, string) ([]VoiceMember, error)
+	CurrentMemberVoiceState(context.Context, string, string) (VoiceState, bool, error)
+	JoinVoice(context.Context, string, string, bool, bool) (VoiceSession, error)
+	LeaveVoice(context.Context, string) error
+	CurrentVoiceSession(context.Context, string) (VoiceSession, bool, error)
 	CurrentPresence(context.Context, string, string) (Presence, error)
 	SelfChannelPermissions(context.Context, string) (PermissionSnapshot, error)
 	SelfUserID() string
 }
 
 type Client struct {
-	session *discordgo.Session
+	session   *discordgo.Session
+	voiceMu   sync.RWMutex
+	voiceConn map[string]*discordgo.VoiceConnection
 }
 
 type ChannelSpec struct {
@@ -76,6 +86,50 @@ type PermissionSnapshot struct {
 	ManageChannels bool
 }
 
+type VoiceMember struct {
+	UserID           string
+	Username         string
+	Bot              bool
+	ChannelID        string
+	Muted            bool
+	Deafened         bool
+	SelfMuted        bool
+	SelfDeafened     bool
+	Suppressed       bool
+	RequestToSpeakAt *time.Time
+}
+
+type VoiceState struct {
+	UserID           string
+	Username         string
+	Bot              bool
+	ChannelID        string
+	Muted            bool
+	Deafened         bool
+	SelfMuted        bool
+	SelfDeafened     bool
+	Suppressed       bool
+	RequestToSpeakAt *time.Time
+}
+
+type VoiceChannel struct {
+	ID          string
+	Name        string
+	ParentID    string
+	Type        discordgo.ChannelType
+	MemberCount int
+	Members     []VoiceMember
+}
+
+type VoiceSession struct {
+	GuildID     string
+	ChannelID   string
+	ChannelName string
+	Connected   bool
+	SelfMute    bool
+	SelfDeaf    bool
+}
+
 func New(token string) (*Client, error) {
 	session, err := discordgo.New("Bot " + token)
 	if err != nil {
@@ -85,8 +139,12 @@ func New(token string) (*Client, error) {
 		discordgo.IntentsGuildMessages |
 		discordgo.IntentsGuildPresences |
 		discordgo.IntentsGuildMembers |
+		discordgo.IntentsGuildVoiceStates |
 		discordgo.IntentsMessageContent
-	return &Client{session: session}, nil
+	return &Client{
+		session:   session,
+		voiceConn: map[string]*discordgo.VoiceConnection{},
+	}, nil
 }
 
 func (c *Client) Open() error {
@@ -94,6 +152,12 @@ func (c *Client) Open() error {
 }
 
 func (c *Client) Close() error {
+	c.voiceMu.Lock()
+	for guildID, conn := range c.voiceConn {
+		_ = conn.Disconnect()
+		delete(c.voiceConn, guildID)
+	}
+	c.voiceMu.Unlock()
 	return c.session.Close()
 }
 
@@ -102,6 +166,10 @@ func (c *Client) AddMessageHandler(handler func(*discordgo.Session, *discordgo.M
 }
 
 func (c *Client) AddPresenceHandler(handler func(*discordgo.Session, *discordgo.PresenceUpdate)) {
+	c.session.AddHandler(handler)
+}
+
+func (c *Client) AddVoiceStateHandler(handler func(*discordgo.Session, *discordgo.VoiceStateUpdate)) {
 	c.session.AddHandler(handler)
 }
 
@@ -246,6 +314,133 @@ func (c *Client) ListChannels(ctx context.Context, guildID string) ([]Channel, e
 	return out, nil
 }
 
+func (c *Client) ListVoiceChannels(ctx context.Context, guildID string) ([]VoiceChannel, error) {
+	channels, err := c.ListChannels(ctx, guildID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]VoiceChannel, 0, len(channels))
+	for _, channel := range channels {
+		if channel.Type != discordgo.ChannelTypeGuildVoice && channel.Type != discordgo.ChannelTypeGuildStageVoice {
+			continue
+		}
+		members, err := c.VoiceChannelMembers(ctx, guildID, channel.ID)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, VoiceChannel{
+			ID:          channel.ID,
+			Name:        channel.Name,
+			ParentID:    channel.ParentID,
+			Type:        channel.Type,
+			MemberCount: len(members),
+			Members:     members,
+		})
+	}
+	return out, nil
+}
+
+func (c *Client) VoiceChannelMembers(ctx context.Context, guildID string, channelID string) ([]VoiceMember, error) {
+	guild, err := c.guildState(ctx, guildID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]VoiceMember, 0, len(guild.VoiceStates))
+	for _, state := range guild.VoiceStates {
+		if state == nil || state.ChannelID != channelID {
+			continue
+		}
+		out = append(out, c.voiceMemberFromState(guild, state))
+	}
+	slices.SortFunc(out, func(a VoiceMember, b VoiceMember) int {
+		switch {
+		case strings.ToLower(a.Username) < strings.ToLower(b.Username):
+			return -1
+		case strings.ToLower(a.Username) > strings.ToLower(b.Username):
+			return 1
+		default:
+			return 0
+		}
+	})
+	return out, nil
+}
+
+func (c *Client) CurrentMemberVoiceState(ctx context.Context, guildID string, userID string) (VoiceState, bool, error) {
+	guild, err := c.guildState(ctx, guildID)
+	if err != nil {
+		return VoiceState{}, false, err
+	}
+	for _, state := range guild.VoiceStates {
+		if state == nil || state.UserID != userID || strings.TrimSpace(state.ChannelID) == "" {
+			continue
+		}
+		member := c.voiceMemberFromState(guild, state)
+		return VoiceState(member), true, nil
+	}
+	return VoiceState{}, false, nil
+}
+
+func (c *Client) JoinVoice(ctx context.Context, guildID string, channelID string, mute bool, deaf bool) (VoiceSession, error) {
+	conn, err := c.session.ChannelVoiceJoin(guildID, channelID, mute, deaf)
+	if err != nil {
+		return VoiceSession{}, wrapDiscordError("join voice", err)
+	}
+	channel, err := c.GetChannel(ctx, channelID)
+	if err != nil {
+		_ = conn.Disconnect()
+		return VoiceSession{}, err
+	}
+	c.voiceMu.Lock()
+	if previous := c.voiceConn[guildID]; previous != nil && previous != conn {
+		_ = previous.Disconnect()
+	}
+	c.voiceConn[guildID] = conn
+	c.voiceMu.Unlock()
+	return VoiceSession{
+		GuildID:     guildID,
+		ChannelID:   channelID,
+		ChannelName: channel.Name,
+		Connected:   conn.Ready,
+		SelfMute:    mute,
+		SelfDeaf:    deaf,
+	}, nil
+}
+
+func (c *Client) LeaveVoice(ctx context.Context, guildID string) error {
+	c.voiceMu.Lock()
+	conn := c.voiceConn[guildID]
+	delete(c.voiceConn, guildID)
+	c.voiceMu.Unlock()
+	if conn == nil {
+		return nil
+	}
+	if err := conn.Disconnect(); err != nil {
+		return wrapDiscordError("leave voice", err)
+	}
+	return nil
+}
+
+func (c *Client) CurrentVoiceSession(ctx context.Context, guildID string) (VoiceSession, bool, error) {
+	c.voiceMu.RLock()
+	conn := c.voiceConn[guildID]
+	c.voiceMu.RUnlock()
+	if conn == nil {
+		return VoiceSession{}, false, nil
+	}
+	channel, err := c.GetChannel(ctx, conn.ChannelID)
+	if err != nil {
+		return VoiceSession{}, false, err
+	}
+	return VoiceSession{
+		GuildID:     guildID,
+		ChannelID:   conn.ChannelID,
+		ChannelName: channel.Name,
+		Connected:   conn.Ready,
+		SelfMute:    false,
+		SelfDeaf:    false,
+	}, true, nil
+}
+
 func (c *Client) CurrentPresence(ctx context.Context, guildID string, userID string) (Presence, error) {
 	presence, err := c.session.State.Presence(guildID, userID)
 	if err != nil {
@@ -354,6 +549,47 @@ func wrapDiscordError(operation string, err error) error {
 		return fmt.Errorf("%s: http=%s", operation, restErr.Response.Status)
 	}
 	return fmt.Errorf("%s: %w", operation, err)
+}
+
+func (c *Client) guildState(ctx context.Context, guildID string) (*discordgo.Guild, error) {
+	if c.session.State != nil {
+		if guild, err := c.session.State.Guild(guildID); err == nil && guild != nil {
+			return guild, nil
+		}
+	}
+	guild, err := c.session.Guild(guildID)
+	if err != nil {
+		return nil, wrapDiscordError("get guild", err)
+	}
+	return guild, nil
+}
+
+func (c *Client) voiceMemberFromState(guild *discordgo.Guild, state *discordgo.VoiceState) VoiceMember {
+	member := VoiceMember{
+		UserID:       state.UserID,
+		ChannelID:    state.ChannelID,
+		Muted:        state.Mute,
+		Deafened:     state.Deaf,
+		SelfMuted:    state.SelfMute,
+		SelfDeafened: state.SelfDeaf,
+		Suppressed:   state.Suppress,
+	}
+	if state.RequestToSpeakTimestamp != nil {
+		requestedAt := state.RequestToSpeakTimestamp.UTC()
+		member.RequestToSpeakAt = &requestedAt
+	}
+	if guild == nil {
+		return member
+	}
+	for _, guildMember := range guild.Members {
+		if guildMember == nil || guildMember.User == nil || guildMember.User.ID != state.UserID {
+			continue
+		}
+		member.Username = guildMember.User.Username
+		member.Bot = guildMember.User.Bot
+		break
+	}
+	return member
 }
 
 func truncateDiscordErrorBody(value string, maxChars int) string {
