@@ -147,10 +147,18 @@ func (c *Client) LeaveVoice(ctx context.Context, guildID string) error {
 	if conn == nil {
 		return nil
 	}
+	prepareVoiceConnectionForLeave(conn)
 	if err := conn.Disconnect(); err != nil {
 		return wrapDiscordError("leave voice", err)
 	}
 	return nil
+}
+
+func prepareVoiceConnectionForLeave(conn *discordgo.VoiceConnection) {
+	if conn == nil {
+		return
+	}
+	conn.ChannelID = ""
 }
 
 func (c *Client) VoiceAudioPackets(ctx context.Context, guildID string) (<-chan VoicePacket, error) {

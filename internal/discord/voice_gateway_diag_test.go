@@ -100,3 +100,11 @@ func TestJoinVoiceConnectionFallsBackToStandardJoin(t *testing.T) {
 		t.Fatalf("expected standard join path to be used, conn=%#v called=%t", conn, session.called)
 	}
 }
+
+func TestPrepareVoiceConnectionForLeaveClearsChannelID(t *testing.T) {
+	conn := &discordgo.VoiceConnection{GuildID: "g-1", ChannelID: "v-1"}
+	prepareVoiceConnectionForLeave(conn)
+	if conn.ChannelID != "" {
+		t.Fatalf("expected channel id to be cleared before leave, got %q", conn.ChannelID)
+	}
+}

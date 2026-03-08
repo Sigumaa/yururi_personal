@@ -359,6 +359,120 @@ func TestOwnerVoicePacketIsForwardedToRealtime(t *testing.T) {
 	}
 }
 
+func TestOwnerVoicePacketCommitsAndRequestsResponseAfterSilence(t *testing.T) {
+	store, err := memory.Open(filepath.Join(t.TempDir(), "voice-turn.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	discord := &discordStub{
+		channel: discordsvc.Channel{ID: "vc-1", Name: "voice"},
+		members: []discordsvc.VoiceMember{{UserID: "owner", Username: "shiyui", ChannelID: "vc-1"}},
+		packets: make(chan discordsvc.VoicePacket, 16),
+	}
+	realtime := &realtimeStub{events: make(chan ServerEvent, 16)}
+	engine := NewEngine(
+		store,
+		discord,
+		realtime,
+		"owner",
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
+	if _, err := engine.Join(context.Background(), "g-1", "vc-1"); err != nil {
+		t.Fatalf("join: %v", err)
+	}
+
+	codec, err := newAudioRuntime()
+	if err != nil {
+		t.Fatalf("new audio runtime: %v", err)
+	}
+	defer codec.Close()
+	frame := make([]int16, discordFrameSamples*discordChannels)
+	for i := range frame {
+		frame[i] = 500
+	}
+	encoded := make([]byte, maxOpusPacketSize)
+	n, err := codec.encoder.Encode(frame, encoded)
+	if err != nil {
+		t.Fatalf("encode test opus: %v", err)
+	}
+	discord.packets <- discordsvc.VoicePacket{
+		GuildID:   "g-1",
+		ChannelID: "vc-1",
+		UserID:    "owner",
+		Username:  "shiyui",
+		Opus:      append([]byte(nil), encoded[:n]...),
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if realtime.committed > 0 && realtime.created > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for fallback turn commit, committed=%d created=%d", realtime.committed, realtime.created)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func TestFallbackTurnCommitSkipsWhenResponseAlreadyStarted(t *testing.T) {
+	store, err := memory.Open(filepath.Join(t.TempDir(), "voice-turn-response.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	discord := &discordStub{
+		channel: discordsvc.Channel{ID: "vc-1", Name: "voice"},
+		members: []discordsvc.VoiceMember{{UserID: "owner", Username: "shiyui", ChannelID: "vc-1"}},
+		packets: make(chan discordsvc.VoicePacket, 16),
+	}
+	realtime := &realtimeStub{events: make(chan ServerEvent, 16)}
+	engine := NewEngine(
+		store,
+		discord,
+		realtime,
+		"owner",
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
+	if _, err := engine.Join(context.Background(), "g-1", "vc-1"); err != nil {
+		t.Fatalf("join: %v", err)
+	}
+
+	codec, err := newAudioRuntime()
+	if err != nil {
+		t.Fatalf("new audio runtime: %v", err)
+	}
+	defer codec.Close()
+	frame := make([]int16, discordFrameSamples*discordChannels)
+	for i := range frame {
+		frame[i] = 500
+	}
+	encoded := make([]byte, maxOpusPacketSize)
+	n, err := codec.encoder.Encode(frame, encoded)
+	if err != nil {
+		t.Fatalf("encode test opus: %v", err)
+	}
+	discord.packets <- discordsvc.VoicePacket{
+		GuildID:   "g-1",
+		ChannelID: "vc-1",
+		UserID:    "owner",
+		Username:  "shiyui",
+		Opus:      append([]byte(nil), encoded[:n]...),
+	}
+	realtime.events <- mustServerEvent(t, map[string]any{
+		"type":        "response.created",
+		"response_id": "resp-1",
+	})
+
+	time.Sleep(voiceInputSilenceWindow + 300*time.Millisecond)
+	if realtime.committed != 0 || realtime.created != 0 {
+		t.Fatalf("expected fallback turn commit to be skipped after response.created, committed=%d created=%d", realtime.committed, realtime.created)
+	}
+}
+
 func mustServerEvent(t *testing.T, payload map[string]any) ServerEvent {
 	t.Helper()
 	raw, err := json.Marshal(payload)

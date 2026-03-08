@@ -3,9 +3,12 @@ package voice
 import (
 	"context"
 	"fmt"
+	"time"
 
 	discordsvc "github.com/Sigumaa/yururi_personal/internal/discord"
 )
+
+const voiceInputSilenceWindow = 900 * time.Millisecond
 
 func (e *Engine) consumeDiscordAudio(ctx context.Context, guildID string, runtime *runtimeSession) {
 	if runtime == nil || runtime.audio == nil || e.discord == nil || e.realtime == nil {
@@ -55,7 +58,14 @@ func (e *Engine) forwardDiscordPacket(ctx context.Context, guildID string, runti
 			e.logger.Warn("voice interrupt on owner activity failed", "guild_id", guildID, "session_id", runtime.session.ID, "error", err)
 		}
 	}
-	return e.realtime.AppendInputAudio(ctx, samplesToPCM16Bytes(mono24))
+	if err := e.realtime.AppendInputAudio(ctx, samplesToPCM16Bytes(mono24)); err != nil {
+		return err
+	}
+	select {
+	case runtime.inputActivity <- struct{}{}:
+	default:
+	}
+	return nil
 }
 
 func (e *Engine) playRealtimeAudio(ctx context.Context, guildID string, event ServerEvent) error {
@@ -98,5 +108,26 @@ func (e *Engine) flushRealtimeAudio(ctx context.Context, guildID string) error {
 			return fmt.Errorf("flush voice opus: %w", err)
 		}
 	}
+	return nil
+}
+
+func (e *Engine) commitPendingVoiceTurn(guildID string, sessionID string) error {
+	runtime, ok := e.sessionRuntime(guildID)
+	if !ok || runtime == nil || runtime.session.ID != sessionID {
+		return nil
+	}
+	switch runtime.session.State {
+	case SessionStateThinking, SessionStateSpeaking, SessionStateLeaving:
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := e.realtime.CommitInputAudio(ctx); err != nil {
+		return err
+	}
+	if err := e.realtime.CreateResponse(ctx); err != nil {
+		return err
+	}
+	e.logger.Debug("voice input committed", "guild_id", guildID, "session_id", sessionID)
 	return nil
 }

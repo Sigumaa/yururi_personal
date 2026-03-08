@@ -13,6 +13,8 @@ type runtimeSession struct {
 	session Session
 	cancel  context.CancelFunc
 	audio   *audioRuntime
+
+	inputActivity chan struct{}
 }
 
 func (e *Engine) sessionRuntime(guildID string) (*runtimeSession, bool) {
@@ -45,9 +47,10 @@ func (e *Engine) startSessionRuntime(guildID string, session Session) {
 		e.logger.Warn("voice audio runtime init failed", "guild_id", guildID, "session_id", session.ID, "error", err)
 	}
 	runtime := &runtimeSession{
-		session: session,
-		cancel:  cancel,
-		audio:   audio,
+		session:       session,
+		cancel:        cancel,
+		audio:         audio,
+		inputActivity: make(chan struct{}, 1),
 	}
 	e.mu.Lock()
 	if current, ok := e.sessions[guildID]; ok && current.cancel != nil {
@@ -61,8 +64,57 @@ func (e *Engine) startSessionRuntime(guildID string, session Session) {
 	if e.realtime == nil {
 	} else {
 		go e.consumeRealtimeEvents(ctx, guildID, session.ID)
+		go e.consumeVoiceTurns(ctx, guildID, session.ID, runtime)
 	}
 	go e.consumeDiscordAudio(ctx, guildID, runtime)
+}
+
+func (e *Engine) consumeVoiceTurns(ctx context.Context, guildID string, sessionID string, runtime *runtimeSession) {
+	if runtime == nil || runtime.inputActivity == nil {
+		return
+	}
+	var (
+		timer  *time.Timer
+		timerC <-chan time.Time
+	)
+	stopTimer := func() {
+		if timer == nil {
+			return
+		}
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+		timerC = nil
+	}
+	defer stopTimer()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-runtime.inputActivity:
+			if timer == nil {
+				timer = time.NewTimer(voiceInputSilenceWindow)
+			} else {
+				if !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
+				}
+				timer.Reset(voiceInputSilenceWindow)
+			}
+			timerC = timer.C
+		case <-timerC:
+			timerC = nil
+			if err := e.commitPendingVoiceTurn(guildID, sessionID); err != nil {
+				e.logger.Warn("voice input commit failed", "guild_id", guildID, "session_id", sessionID, "error", err)
+			}
+		}
+	}
 }
 
 func (e *Engine) consumeRealtimeEvents(ctx context.Context, guildID string, sessionID string) {
