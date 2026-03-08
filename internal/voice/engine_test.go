@@ -2,6 +2,7 @@ package voice
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -19,6 +20,8 @@ type discordStub struct {
 	members []discordsvc.VoiceMember
 	joined  bool
 	left    bool
+	packets chan discordsvc.VoicePacket
+	sent    [][]byte
 }
 
 func (d *discordStub) GetChannel(context.Context, string) (discordsvc.Channel, error) {
@@ -51,6 +54,18 @@ func (d *discordStub) CurrentVoiceSession(context.Context, string) (discordsvc.V
 
 func (d *discordStub) VoiceChannelMembers(context.Context, string, string) ([]discordsvc.VoiceMember, error) {
 	return d.members, nil
+}
+
+func (d *discordStub) VoiceAudioPackets(context.Context, string) (<-chan discordsvc.VoicePacket, error) {
+	if d.packets == nil {
+		d.packets = make(chan discordsvc.VoicePacket, 16)
+	}
+	return d.packets, nil
+}
+
+func (d *discordStub) SendVoiceOpus(_ context.Context, _ string, opus []byte) error {
+	d.sent = append(d.sent, append([]byte(nil), opus...))
+	return nil
 }
 
 type realtimeStub struct {
@@ -235,6 +250,112 @@ func TestEngineRecordsRealtimeTranscriptsAndMirrorsMessages(t *testing.T) {
 	}
 	if len(messages) == 0 {
 		t.Fatalf("expected mirrored voice transcripts to appear in raw messages")
+	}
+}
+
+func TestRealtimeAudioDeltaIsEncodedForDiscord(t *testing.T) {
+	store, err := memory.Open(filepath.Join(t.TempDir(), "voice-audio.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	discord := &discordStub{
+		channel: discordsvc.Channel{ID: "vc-1", Name: "voice"},
+		members: []discordsvc.VoiceMember{{UserID: "owner", Username: "shiyui", ChannelID: "vc-1"}},
+	}
+	realtime := &realtimeStub{events: make(chan ServerEvent, 16)}
+	engine := NewEngine(
+		store,
+		discord,
+		realtime,
+		"owner",
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
+	if _, err := engine.Join(context.Background(), "g-1", "vc-1"); err != nil {
+		t.Fatalf("join: %v", err)
+	}
+
+	pcm := make([]int16, 480)
+	for i := range pcm {
+		pcm[i] = 1000
+	}
+	realtime.events <- mustServerEvent(t, map[string]any{
+		"type":  "response.output_audio.delta",
+		"delta": base64.StdEncoding.EncodeToString(samplesToPCM16Bytes(pcm)),
+	})
+	realtime.events <- mustServerEvent(t, map[string]any{
+		"type":        "response.done",
+		"response_id": "resp-1",
+	})
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if len(discord.sent) > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for encoded voice output")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func TestOwnerVoicePacketIsForwardedToRealtime(t *testing.T) {
+	store, err := memory.Open(filepath.Join(t.TempDir(), "voice-input.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	discord := &discordStub{
+		channel: discordsvc.Channel{ID: "vc-1", Name: "voice"},
+		members: []discordsvc.VoiceMember{{UserID: "owner", Username: "shiyui", ChannelID: "vc-1"}},
+		packets: make(chan discordsvc.VoicePacket, 16),
+	}
+	realtime := &realtimeStub{events: make(chan ServerEvent, 16)}
+	engine := NewEngine(
+		store,
+		discord,
+		realtime,
+		"owner",
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
+	if _, err := engine.Join(context.Background(), "g-1", "vc-1"); err != nil {
+		t.Fatalf("join: %v", err)
+	}
+
+	codec, err := newAudioRuntime()
+	if err != nil {
+		t.Fatalf("new audio runtime: %v", err)
+	}
+	defer codec.Close()
+	frame := make([]int16, discordFrameSamples*discordChannels)
+	for i := range frame {
+		frame[i] = 500
+	}
+	encoded := make([]byte, maxOpusPacketSize)
+	n, err := codec.encoder.Encode(frame, encoded)
+	if err != nil {
+		t.Fatalf("encode test opus: %v", err)
+	}
+	discord.packets <- discordsvc.VoicePacket{
+		GuildID:   "g-1",
+		ChannelID: "vc-1",
+		UserID:    "owner",
+		Username:  "shiyui",
+		Opus:      append([]byte(nil), encoded[:n]...),
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if len(realtime.appended) > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for realtime audio append")
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }
 

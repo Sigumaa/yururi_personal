@@ -11,6 +11,7 @@ Discord 上で動くパーソナル AI Agent `ゆるり` の実装。
 - bot 専用 `CODEX_HOME` と bot 専用 workspace を分離
 - チャンネルごとの会話 thread、短期記憶、長期記憶、定期ジョブ、自律 pulse を内包
 - Discord 管理、channel profile、URL 取得、URL 監視、background Codex task、画像添付読込の tool を持つ
+- Discord VC の参加、音声 transcript 保存、Realtime 音声 session を持つ
 - 起動時にチャンネルやカテゴリを自動作成しない
 - `runtime/workspace/context/` に bot 向けの実能力と振る舞い方針を生成する
 
@@ -44,9 +45,12 @@ go run ./cmd/yururi reset --full
 - `YURURI_GUILD_ID`
 - `YURURI_OWNER_USER_ID`
 - `YURURI_RUNTIME_ROOT`
+- `OPENAI_API_KEY`
 
 Codex 認証は bot 専用 `runtime/codex-home/` で行う。
 
 ```bash
 CODEX_HOME=./runtime/codex-home codex login
 ```
+
+VC 音声の encode / decode には `libopus` が必要。

@@ -12,6 +12,7 @@ import (
 type runtimeSession struct {
 	session Session
 	cancel  context.CancelFunc
+	audio   *audioRuntime
 }
 
 func (e *Engine) sessionRuntime(guildID string) (*runtimeSession, bool) {
@@ -39,20 +40,29 @@ func (e *Engine) configureRealtime(ctx context.Context, session *Session) {
 
 func (e *Engine) startSessionRuntime(guildID string, session Session) {
 	ctx, cancel := context.WithCancel(context.Background())
+	audio, err := newAudioRuntime()
+	if err != nil {
+		e.logger.Warn("voice audio runtime init failed", "guild_id", guildID, "session_id", session.ID, "error", err)
+	}
 	runtime := &runtimeSession{
 		session: session,
 		cancel:  cancel,
+		audio:   audio,
 	}
 	e.mu.Lock()
 	if current, ok := e.sessions[guildID]; ok && current.cancel != nil {
 		current.cancel()
+		if current.audio != nil {
+			current.audio.Close()
+		}
 	}
 	e.sessions[guildID] = runtime
 	e.mu.Unlock()
 	if e.realtime == nil {
-		return
+	} else {
+		go e.consumeRealtimeEvents(ctx, guildID, session.ID)
 	}
-	go e.consumeRealtimeEvents(ctx, guildID, session.ID)
+	go e.consumeDiscordAudio(ctx, guildID, runtime)
 }
 
 func (e *Engine) consumeRealtimeEvents(ctx context.Context, guildID string, sessionID string) {
@@ -103,12 +113,20 @@ func (e *Engine) handleRealtimeEvent(ctx context.Context, guildID string, sessio
 			return err
 		}
 		return e.setSessionState(ctx, guildID, SessionStateThinking)
-	case "response.audio.delta", "response.audio_transcript.delta", "response.text.delta":
+	case "response.audio.delta", "response.output_audio.delta", "response.audio_transcript.delta", "response.text.delta":
 		if err := save("response_streaming", map[string]any{"raw_type": event.Type, "response_id": event.responseID()}); err != nil {
 			return err
 		}
+		if event.Type == "response.audio.delta" || event.Type == "response.output_audio.delta" {
+			if err := e.playRealtimeAudio(ctx, guildID, event); err != nil {
+				return err
+			}
+		}
 		return e.setSessionState(ctx, guildID, SessionStateSpeaking)
 	case "response.done":
+		if err := e.flushRealtimeAudio(ctx, guildID); err != nil {
+			return err
+		}
 		if err := save("response_completed", map[string]any{"raw_type": event.Type, "response_id": event.responseID()}); err != nil {
 			return err
 		}

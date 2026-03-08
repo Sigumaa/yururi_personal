@@ -80,3 +80,13 @@ func (e ServerEvent) responseID() string {
 	}
 	return payload.ResponseID
 }
+
+func (e ServerEvent) audioDelta() string {
+	var payload struct {
+		Delta string `json:"delta"`
+	}
+	if !e.decode(&payload) {
+		return ""
+	}
+	return payload.Delta
+}

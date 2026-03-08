@@ -80,6 +80,9 @@ func (e *Engine) Leave(ctx context.Context, guildID string, reason string) error
 	if !ok {
 		return nil
 	}
+	if runtime.audio != nil {
+		runtime.audio.Close()
+	}
 	runtime.cancel()
 	now := time.Now().UTC()
 	e.mu.Lock()

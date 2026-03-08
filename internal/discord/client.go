@@ -35,6 +35,8 @@ type Service interface {
 	JoinVoice(context.Context, string, string, bool, bool) (VoiceSession, error)
 	LeaveVoice(context.Context, string) error
 	CurrentVoiceSession(context.Context, string) (VoiceSession, bool, error)
+	VoiceAudioPackets(context.Context, string) (<-chan VoicePacket, error)
+	SendVoiceOpus(context.Context, string, []byte) error
 	CurrentPresence(context.Context, string, string) (Presence, error)
 	SelfChannelPermissions(context.Context, string) (PermissionSnapshot, error)
 	SelfUserID() string
@@ -44,6 +46,7 @@ type Client struct {
 	session   *discordgo.Session
 	voiceMu   sync.RWMutex
 	voiceConn map[string]*discordgo.VoiceConnection
+	voiceRT   map[string]*voiceRuntime
 }
 
 type ChannelSpec struct {
@@ -130,6 +133,17 @@ type VoiceSession struct {
 	SelfDeaf    bool
 }
 
+type VoicePacket struct {
+	GuildID   string
+	ChannelID string
+	UserID    string
+	Username  string
+	SSRC      uint32
+	Sequence  uint16
+	Timestamp uint32
+	Opus      []byte
+}
+
 func New(token string) (*Client, error) {
 	session, err := discordgo.New("Bot " + token)
 	if err != nil {
@@ -144,6 +158,7 @@ func New(token string) (*Client, error) {
 	return &Client{
 		session:   session,
 		voiceConn: map[string]*discordgo.VoiceConnection{},
+		voiceRT:   map[string]*voiceRuntime{},
 	}, nil
 }
 
@@ -154,6 +169,10 @@ func (c *Client) Open() error {
 func (c *Client) Close() error {
 	c.voiceMu.Lock()
 	for guildID, conn := range c.voiceConn {
+		if runtime := c.voiceRT[guildID]; runtime != nil {
+			runtime.close()
+			delete(c.voiceRT, guildID)
+		}
 		_ = conn.Disconnect()
 		delete(c.voiceConn, guildID)
 	}
@@ -378,46 +397,6 @@ func (c *Client) CurrentMemberVoiceState(ctx context.Context, guildID string, us
 		return VoiceState(member), true, nil
 	}
 	return VoiceState{}, false, nil
-}
-
-func (c *Client) JoinVoice(ctx context.Context, guildID string, channelID string, mute bool, deaf bool) (VoiceSession, error) {
-	conn, err := c.session.ChannelVoiceJoin(guildID, channelID, mute, deaf)
-	if err != nil {
-		return VoiceSession{}, wrapDiscordError("join voice", err)
-	}
-	channel, err := c.GetChannel(ctx, channelID)
-	if err != nil {
-		_ = conn.Disconnect()
-		return VoiceSession{}, err
-	}
-	c.voiceMu.Lock()
-	if previous := c.voiceConn[guildID]; previous != nil && previous != conn {
-		_ = previous.Disconnect()
-	}
-	c.voiceConn[guildID] = conn
-	c.voiceMu.Unlock()
-	return VoiceSession{
-		GuildID:     guildID,
-		ChannelID:   channelID,
-		ChannelName: channel.Name,
-		Connected:   conn.Ready,
-		SelfMute:    mute,
-		SelfDeaf:    deaf,
-	}, nil
-}
-
-func (c *Client) LeaveVoice(ctx context.Context, guildID string) error {
-	c.voiceMu.Lock()
-	conn := c.voiceConn[guildID]
-	delete(c.voiceConn, guildID)
-	c.voiceMu.Unlock()
-	if conn == nil {
-		return nil
-	}
-	if err := conn.Disconnect(); err != nil {
-		return wrapDiscordError("leave voice", err)
-	}
-	return nil
 }
 
 func (c *Client) CurrentVoiceSession(ctx context.Context, guildID string) (VoiceSession, bool, error) {

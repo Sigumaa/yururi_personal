@@ -72,6 +72,10 @@ func (d *discordStub) JoinVoice(context.Context, string, string, bool, bool) (di
 	return discordsvc.VoiceSession{}, nil
 }
 func (d *discordStub) LeaveVoice(context.Context, string) error { return nil }
+func (d *discordStub) VoiceAudioPackets(context.Context, string) (<-chan discordsvc.VoicePacket, error) {
+	return make(chan discordsvc.VoicePacket), nil
+}
+func (d *discordStub) SendVoiceOpus(context.Context, string, []byte) error { return nil }
 func (d *discordStub) CurrentVoiceSession(context.Context, string) (discordsvc.VoiceSession, bool, error) {
 	return discordsvc.VoiceSession{}, false, nil
 }

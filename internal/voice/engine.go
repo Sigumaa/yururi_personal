@@ -15,6 +15,8 @@ type discordService interface {
 	LeaveVoice(context.Context, string) error
 	CurrentVoiceSession(context.Context, string) (discordsvc.VoiceSession, bool, error)
 	VoiceChannelMembers(context.Context, string, string) ([]discordsvc.VoiceMember, error)
+	VoiceAudioPackets(context.Context, string) (<-chan discordsvc.VoicePacket, error)
+	SendVoiceOpus(context.Context, string, []byte) error
 }
 
 type Engine struct {
