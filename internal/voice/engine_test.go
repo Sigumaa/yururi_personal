@@ -16,12 +16,13 @@ import (
 )
 
 type discordStub struct {
-	channel discordsvc.Channel
-	members []discordsvc.VoiceMember
-	joined  bool
-	left    bool
-	packets chan discordsvc.VoicePacket
-	sent    [][]byte
+	channel  discordsvc.Channel
+	members  []discordsvc.VoiceMember
+	joined   bool
+	left     bool
+	packets  chan discordsvc.VoicePacket
+	sent     [][]byte
+	speaking []bool
 }
 
 func (d *discordStub) GetChannel(context.Context, string) (discordsvc.Channel, error) {
@@ -65,6 +66,11 @@ func (d *discordStub) VoiceAudioPackets(context.Context, string) (<-chan discord
 
 func (d *discordStub) SendVoiceOpus(_ context.Context, _ string, opus []byte) error {
 	d.sent = append(d.sent, append([]byte(nil), opus...))
+	return nil
+}
+
+func (d *discordStub) SetVoiceSpeaking(_ context.Context, _ string, speaking bool) error {
+	d.speaking = append(d.speaking, speaking)
 	return nil
 }
 
@@ -298,6 +304,22 @@ func TestRealtimeAudioDeltaIsEncodedForDiscord(t *testing.T) {
 			t.Fatalf("timed out waiting for encoded voice output")
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+	if len(discord.speaking) == 0 || !discord.speaking[0] {
+		t.Fatalf("expected voice speaking to start before sending audio, calls=%v", discord.speaking)
+	}
+	deadline = time.Now().Add(2 * time.Second)
+	for {
+		if len(discord.speaking) >= 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for voice speaking to stop, calls=%v", discord.speaking)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if discord.speaking[len(discord.speaking)-1] {
+		t.Fatalf("expected final voice speaking state to be false, calls=%v", discord.speaking)
 	}
 }
 

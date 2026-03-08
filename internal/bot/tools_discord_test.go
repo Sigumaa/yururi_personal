@@ -141,7 +141,8 @@ func (d *discordToolsStub) LeaveVoice(context.Context, string) error { return ni
 func (d *discordToolsStub) VoiceAudioPackets(context.Context, string) (<-chan discordsvc.VoicePacket, error) {
 	return make(chan discordsvc.VoicePacket), nil
 }
-func (d *discordToolsStub) SendVoiceOpus(context.Context, string, []byte) error { return nil }
+func (d *discordToolsStub) SendVoiceOpus(context.Context, string, []byte) error  { return nil }
+func (d *discordToolsStub) SetVoiceSpeaking(context.Context, string, bool) error { return nil }
 func (d *discordToolsStub) CurrentVoiceSession(context.Context, string) (discordsvc.VoiceSession, bool, error) {
 	return discordsvc.VoiceSession{GuildID: "g-1", ChannelID: "v-1", ChannelName: "voice", Connected: true}, true, nil
 }

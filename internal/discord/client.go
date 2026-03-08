@@ -37,6 +37,7 @@ type Service interface {
 	CurrentVoiceSession(context.Context, string) (VoiceSession, bool, error)
 	VoiceAudioPackets(context.Context, string) (<-chan VoicePacket, error)
 	SendVoiceOpus(context.Context, string, []byte) error
+	SetVoiceSpeaking(context.Context, string, bool) error
 	CurrentPresence(context.Context, string, string) (Presence, error)
 	SelfChannelPermissions(context.Context, string) (PermissionSnapshot, error)
 	SelfUserID() string

@@ -14,7 +14,8 @@ type runtimeSession struct {
 	cancel  context.CancelFunc
 	audio   *audioRuntime
 
-	inputActivity chan struct{}
+	inputActivity  chan struct{}
+	playbackActive bool
 }
 
 func (e *Engine) sessionRuntime(guildID string) (*runtimeSession, bool) {

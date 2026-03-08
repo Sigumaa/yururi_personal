@@ -72,6 +72,12 @@ func (e *Engine) Interrupt(ctx context.Context, guildID string, reason string) e
 	}
 	if runtime, ok := e.sessionRuntime(guildID); ok && runtime.audio != nil {
 		runtime.audio.resetOutput()
+		if runtime.playbackActive {
+			if err := e.discord.SetVoiceSpeaking(ctx, guildID, false); err != nil {
+				return err
+			}
+			runtime.playbackActive = false
+		}
 	}
 	if err := e.store.SaveVoiceEvent(ctx, memory.VoiceEvent{
 		SessionID: session.ID,

@@ -189,6 +189,19 @@ func (c *Client) SendVoiceOpus(ctx context.Context, guildID string, opus []byte)
 	}
 }
 
+func (c *Client) SetVoiceSpeaking(ctx context.Context, guildID string, speaking bool) error {
+	c.voiceMu.RLock()
+	conn := c.voiceConn[guildID]
+	c.voiceMu.RUnlock()
+	if conn == nil {
+		return fmt.Errorf("voice connection is not active")
+	}
+	if err := conn.Speaking(speaking); err != nil {
+		return wrapDiscordError("set voice speaking", err)
+	}
+	return nil
+}
+
 func (c *Client) waitForVoiceReady(ctx context.Context, conn *discordgo.VoiceConnection) error {
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()

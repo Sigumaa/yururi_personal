@@ -10,6 +10,7 @@ import (
 )
 
 const voiceInputSilenceWindow = 900 * time.Millisecond
+const voicePlaybackLeadTime = 250 * time.Millisecond
 
 func (e *Engine) consumeDiscordAudio(ctx context.Context, guildID string, runtime *runtimeSession) {
 	if runtime == nil || runtime.audio == nil || e.discord == nil || e.realtime == nil {
@@ -123,12 +124,20 @@ func (e *Engine) playRealtimeAudio(ctx context.Context, guildID string, event Se
 	if err != nil {
 		return err
 	}
+	peak, avg := sampleLevels(samples)
 	runtime.audio.appendRealtimeOutput(samples)
 	frames, err := runtime.audio.drainOpusFrames()
 	if err != nil {
 		return err
 	}
-	e.logger.Debug("voice audio delta received", "guild_id", guildID, "event_type", event.Type, "sample_count", len(samples), "opus_frames", len(frames))
+	if len(frames) > 0 && !runtime.playbackActive {
+		if err := e.discord.SetVoiceSpeaking(ctx, guildID, true); err != nil {
+			return fmt.Errorf("start voice speaking: %w", err)
+		}
+		runtime.playbackActive = true
+		time.Sleep(voicePlaybackLeadTime)
+	}
+	e.logger.Debug("voice audio delta received", "guild_id", guildID, "event_type", event.Type, "sample_count", len(samples), "peak_level", peak, "avg_level", avg, "opus_frames", len(frames))
 	for _, frame := range frames {
 		if err := e.discord.SendVoiceOpus(ctx, guildID, frame); err != nil {
 			return fmt.Errorf("send voice opus: %w", err)
@@ -150,6 +159,12 @@ func (e *Engine) flushRealtimeAudio(ctx context.Context, guildID string) error {
 		if err := e.discord.SendVoiceOpus(ctx, guildID, frame); err != nil {
 			return fmt.Errorf("flush voice opus: %w", err)
 		}
+	}
+	if runtime.playbackActive {
+		if err := e.discord.SetVoiceSpeaking(ctx, guildID, false); err != nil {
+			return fmt.Errorf("stop voice speaking: %w", err)
+		}
+		runtime.playbackActive = false
 	}
 	return nil
 }
@@ -173,4 +188,23 @@ func (e *Engine) commitPendingVoiceTurn(guildID string, sessionID string) error 
 	}
 	e.logger.Debug("voice input committed", "guild_id", guildID, "session_id", sessionID)
 	return nil
+}
+
+func sampleLevels(samples []int16) (int16, int16) {
+	if len(samples) == 0 {
+		return 0, 0
+	}
+	var peak int
+	var total int64
+	for _, sample := range samples {
+		level := int(sample)
+		if level < 0 {
+			level = -level
+		}
+		if level > peak {
+			peak = level
+		}
+		total += int64(level)
+	}
+	return int16(peak), int16(total / int64(len(samples)))
 }
