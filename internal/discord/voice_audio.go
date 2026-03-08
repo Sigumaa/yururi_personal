@@ -12,6 +12,8 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
+const voiceReceiveIdleWarnAfter = 15 * time.Second
+
 type voiceRuntime struct {
 	conn     *discordgo.VoiceConnection
 	guildID  string
@@ -24,7 +26,7 @@ type voiceRuntime struct {
 
 	packetCount         int
 	speakingUpdateCount int
-	mu       sync.RWMutex
+	mu                  sync.RWMutex
 }
 
 type voiceJoiner interface {
@@ -247,7 +249,7 @@ func (c *Client) waitForVoiceReady(ctx context.Context, conn *discordgo.VoiceCon
 }
 
 func (c *Client) forwardVoicePackets(runtime *voiceRuntime) {
-	idleTimer := time.NewTimer(5 * time.Second)
+	idleTimer := time.NewTimer(voiceReceiveIdleWarnAfter)
 	defer idleTimer.Stop()
 	idleWarned := false
 	for {
