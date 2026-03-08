@@ -197,6 +197,10 @@ func (c *WebsocketRealtimeClient) readLoop() {
 }
 
 func (c *WebsocketRealtimeClient) handleProtocolCompatibility(event ServerEvent) {
+	if event.Type == "session.created" {
+		c.reconcileSessionConfig(event.sessionSettings())
+		return
+	}
 	if event.Type != "error" {
 		return
 	}
@@ -208,6 +212,34 @@ func (c *WebsocketRealtimeClient) handleProtocolCompatibility(event ServerEvent)
 	defer c.mu.Unlock()
 	c.legacySchema = true
 	if c.sessionConfig != nil {
+		c.sessionDirty = true
+	}
+}
+
+func (c *WebsocketRealtimeClient) reconcileSessionConfig(settings SessionSettings) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.sessionConfig == nil {
+		return
+	}
+	cfg := c.sessionConfig
+	if settings.Voice != "" && settings.Voice != cfg.Voice {
+		c.sessionDirty = true
+		return
+	}
+	if settings.TurnDetection != "" && settings.TurnDetection != cfg.TurnDetection {
+		c.sessionDirty = true
+		return
+	}
+	if settings.TurnDetectionEagerness != "" && settings.TurnDetectionEagerness != cfg.TurnDetectionEagerness {
+		c.sessionDirty = true
+		return
+	}
+	if settings.InputTranscriptionModel != "" && settings.InputTranscriptionModel != cfg.InputTranscriptionModel {
+		c.sessionDirty = true
+		return
+	}
+	if settings.Instructions != "" && settings.Instructions != cfg.Instructions {
 		c.sessionDirty = true
 	}
 }

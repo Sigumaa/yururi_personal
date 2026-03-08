@@ -283,3 +283,73 @@ func TestRealtimeClientFallsBackToLegacySessionSchemaOnUnknownAudioParameter(t *
 		t.Fatalf("expected input_audio_buffer.append after fallback, got %#v", third["type"])
 	}
 }
+
+func TestRealtimeClientReappliesSessionAfterCreatedDefaultsMismatch(t *testing.T) {
+	upgrader := websocket.Upgrader{}
+	received := make(chan map[string]any, 8)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Fatalf("upgrade: %v", err)
+		}
+		defer conn.Close()
+
+		if err := conn.WriteJSON(map[string]any{
+			"type": "session.created",
+			"session": map[string]any{
+				"instructions": "Your knowledge cutoff is 2023-10.",
+				"audio": map[string]any{
+					"output": map[string]any{
+						"voice": "alloy",
+					},
+				},
+			},
+		}); err != nil {
+			t.Fatalf("write session.created: %v", err)
+		}
+
+		for {
+			_, payload, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			var event map[string]any
+			if err := json.Unmarshal(payload, &event); err != nil {
+				t.Fatalf("unmarshal client event: %v", err)
+			}
+			received <- event
+		}
+	}))
+	defer server.Close()
+
+	client := NewRealtimeClient(RealtimeOptions{
+		APIKey: "test-key",
+		Model:  "gpt-realtime",
+		URL:    "ws" + strings.TrimPrefix(server.URL, "http"),
+	})
+
+	cfg := DefaultSessionConfig("voice")
+	if err := client.ConfigureSession(context.Background(), cfg); err != nil {
+		t.Fatalf("configure realtime session: %v", err)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+
+	if err := client.AppendInputAudio(context.Background(), []byte{0x01, 0x02}); err != nil {
+		t.Fatalf("append input audio: %v", err)
+	}
+
+	first := <-received
+	second := <-received
+	third := <-received
+
+	if first["type"] != "session.update" {
+		t.Fatalf("expected first event to be initial session.update, got %#v", first["type"])
+	}
+	if second["type"] != "session.update" {
+		t.Fatalf("expected second event to reapply session.update after session.created mismatch, got %#v", second["type"])
+	}
+	if third["type"] != "input_audio_buffer.append" {
+		t.Fatalf("expected third event to append audio after reapplying config, got %#v", third["type"])
+	}
+}
