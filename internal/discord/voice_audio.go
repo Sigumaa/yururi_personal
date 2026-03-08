@@ -2,6 +2,7 @@ package discord
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -19,6 +20,14 @@ type voiceRuntime struct {
 	closed   bool
 	speakers map[uint32]string
 	mu       sync.RWMutex
+}
+
+type voiceJoiner interface {
+	ChannelVoiceJoin(guildID string, channelID string, mute bool, deaf bool) (*discordgo.VoiceConnection, error)
+}
+
+type voiceE2EEJoiner interface {
+	ChannelVoiceJoinE2EE(guildID string, channelID string, mute bool, deaf bool) (*discordgo.VoiceConnection, error)
 }
 
 func newVoiceRuntime(guildID string, channelID string, conn *discordgo.VoiceConnection) *voiceRuntime {
@@ -58,10 +67,24 @@ func (r *voiceRuntime) speaker(ssrc uint32) string {
 	return r.speakers[ssrc]
 }
 
+func joinVoiceConnection(session any, guildID string, channelID string, mute bool, deaf bool) (*discordgo.VoiceConnection, error) {
+	if session == nil {
+		return nil, errors.New("discord session is not initialized")
+	}
+	if joiner, ok := session.(voiceE2EEJoiner); ok {
+		return joiner.ChannelVoiceJoinE2EE(guildID, channelID, mute, deaf)
+	}
+	joiner, ok := session.(voiceJoiner)
+	if !ok {
+		return nil, errors.New("discord session does not support voice join")
+	}
+	return joiner.ChannelVoiceJoin(guildID, channelID, mute, deaf)
+}
+
 func (c *Client) JoinVoice(ctx context.Context, guildID string, channelID string, mute bool, deaf bool) (VoiceSession, error) {
 	startedAt := time.Now().UTC()
 	channel, channelErr := c.GetChannel(ctx, channelID)
-	conn, err := c.session.ChannelVoiceJoin(guildID, channelID, mute, deaf)
+	conn, err := joinVoiceConnection(c.session, guildID, channelID, mute, deaf)
 	if err != nil {
 		closeEvent, ok := latestVoiceGatewayCloseSince(startedAt)
 		if channelErr == nil {

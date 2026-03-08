@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/bwmarrin/discordgo"
 )
 
 func TestParseVoiceGatewayCloseEventDetects4017(t *testing.T) {
@@ -52,5 +54,49 @@ func TestClassifyVoiceJoinErrorFallsBackToWrappedError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "join voice: timeout waiting for voice") {
 		t.Fatalf("unexpected wrapped error: %s", err)
+	}
+}
+
+type baseVoiceJoinStub struct {
+	called bool
+}
+
+func (s *baseVoiceJoinStub) ChannelVoiceJoin(guildID string, channelID string, mute bool, deaf bool) (*discordgo.VoiceConnection, error) {
+	s.called = true
+	return &discordgo.VoiceConnection{GuildID: guildID, ChannelID: channelID}, nil
+}
+
+type e2eeVoiceJoinStub struct {
+	baseVoiceJoinStub
+	e2eeCalled bool
+}
+
+func (s *e2eeVoiceJoinStub) ChannelVoiceJoinE2EE(guildID string, channelID string, mute bool, deaf bool) (*discordgo.VoiceConnection, error) {
+	s.e2eeCalled = true
+	return &discordgo.VoiceConnection{GuildID: guildID, ChannelID: channelID}, nil
+}
+
+func TestJoinVoiceConnectionPrefersE2EEWhenAvailable(t *testing.T) {
+	session := &e2eeVoiceJoinStub{}
+	conn, err := joinVoiceConnection(session, "g-1", "v-1", false, false)
+	if err != nil {
+		t.Fatalf("joinVoiceConnection: %v", err)
+	}
+	if conn == nil || !session.e2eeCalled {
+		t.Fatalf("expected E2EE join path to be used, conn=%#v called=%t", conn, session.e2eeCalled)
+	}
+	if session.called {
+		t.Fatal("expected standard join path to be skipped when E2EE is available")
+	}
+}
+
+func TestJoinVoiceConnectionFallsBackToStandardJoin(t *testing.T) {
+	session := &baseVoiceJoinStub{}
+	conn, err := joinVoiceConnection(session, "g-1", "v-1", false, false)
+	if err != nil {
+		t.Fatalf("joinVoiceConnection: %v", err)
+	}
+	if conn == nil || !session.called {
+		t.Fatalf("expected standard join path to be used, conn=%#v called=%t", conn, session.called)
 	}
 }
