@@ -1,8 +1,9 @@
 package discord
 
 import (
+	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"regexp"
 	"strconv"
 	"strings"
@@ -23,9 +24,17 @@ var (
 	voiceGatewayLoggerOnce sync.Once
 	voiceGatewayCloseMu    sync.RWMutex
 	lastVoiceGatewayClose  voiceGatewayCloseEvent
+	discordgoLoggerMu      sync.RWMutex
+	discordgoLogger        *slog.Logger
 
 	voiceGatewayClosePattern = regexp.MustCompile(`websocket: close ([0-9]+):\s*(.+)$`)
 )
+
+func SetLibraryLogger(logger *slog.Logger) {
+	discordgoLoggerMu.Lock()
+	defer discordgoLoggerMu.Unlock()
+	discordgoLogger = logger
+}
 
 func installVoiceGatewayLogger() {
 	voiceGatewayLoggerOnce.Do(func() {
@@ -33,13 +42,23 @@ func installVoiceGatewayLogger() {
 		discordgo.Logger = func(msgL, caller int, format string, a ...interface{}) {
 			msg := fmt.Sprintf(format, a...)
 			captureVoiceGatewayClose(msgL, msg)
+			if logger := currentLibraryLogger(); logger != nil {
+				logDiscordgoMessage(logger, msgL, msg)
+				return
+			}
 			if previous != nil {
 				previous(msgL, caller, format, a...)
 				return
 			}
-			log.Printf("[DG%d] %s", msgL, msg)
+			logDiscordgoMessage(slog.Default(), msgL, msg)
 		}
 	})
+}
+
+func currentLibraryLogger() *slog.Logger {
+	discordgoLoggerMu.RLock()
+	defer discordgoLoggerMu.RUnlock()
+	return discordgoLogger
 }
 
 func captureVoiceGatewayClose(msgLevel int, message string) {
@@ -100,4 +119,25 @@ func classifyVoiceJoinError(err error, channel Channel, closeEvent voiceGatewayC
 		)
 	}
 	return fmt.Errorf("join voice: %w", err)
+}
+
+func logDiscordgoMessage(logger *slog.Logger, msgLevel int, message string) {
+	attrs := []any{"component", "discordgo", "message", strings.TrimSpace(message)}
+	if event, ok := parseVoiceGatewayCloseEvent(message); ok {
+		attrs = append(attrs, "voice.close_code", event.Code, "voice.close_reason", event.Reason)
+	}
+	logger.Log(context.Background(), discordgoLogLevel(msgLevel), "discord library", attrs...)
+}
+
+func discordgoLogLevel(level int) slog.Level {
+	switch level {
+	case discordgo.LogError:
+		return slog.LevelError
+	case discordgo.LogWarning:
+		return slog.LevelWarn
+	case discordgo.LogInformational:
+		return slog.LevelInfo
+	default:
+		return slog.LevelDebug
+	}
 }

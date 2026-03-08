@@ -12,17 +12,24 @@ import (
 
 	"github.com/Sigumaa/yururi_personal/internal/bot"
 	"github.com/Sigumaa/yururi_personal/internal/config"
+	"github.com/Sigumaa/yururi_personal/internal/logview"
 	runtimecfg "github.com/Sigumaa/yururi_personal/internal/runtime"
 )
 
 func main() {
-	if err := run(); err != nil {
+	logger := slog.New(logview.NewHandler(os.Stdout, logview.Options{
+		Level: slog.LevelDebug,
+		Color: logview.DefaultColorEnabled(os.Stdout),
+	}))
+	slog.SetDefault(logger)
+
+	if err := run(logger); err != nil {
 		slog.Error("yururi failed", "error", err)
 		os.Exit(1)
 	}
 }
 
-func run() error {
+func run(logger *slog.Logger) error {
 	fs := flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
 	configPath := fs.String("config", filepath.Join("config", "example.toml"), "path to bot config")
 	if err := fs.Parse(os.Args[1:]); err != nil {
@@ -41,8 +48,6 @@ func run() error {
 	if err != nil {
 		return err
 	}
-
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	switch command {
 	case "reset":

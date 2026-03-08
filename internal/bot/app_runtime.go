@@ -44,6 +44,7 @@ func (a *App) Run(ctx context.Context) error {
 		}
 	}
 
+	discordsvc.SetLibraryLogger(a.logger)
 	discordClient, err := discordsvc.New(a.cfg.Discord.Token)
 	if err != nil {
 		return err
