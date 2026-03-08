@@ -111,3 +111,49 @@ func TestRealtimeClientConnectsToConfiguredServer(t *testing.T) {
 		t.Fatalf("close realtime: %v", err)
 	}
 }
+
+func TestRealtimeClientAppliesPendingSessionBeforeAudioAppend(t *testing.T) {
+	upgrader := websocket.Upgrader{}
+	received := make(chan map[string]any, 8)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Fatalf("upgrade: %v", err)
+		}
+		defer conn.Close()
+		for {
+			_, payload, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			var event map[string]any
+			if err := json.Unmarshal(payload, &event); err != nil {
+				t.Fatalf("unmarshal client event: %v", err)
+			}
+			received <- event
+		}
+	}))
+	defer server.Close()
+
+	client := NewRealtimeClient(RealtimeOptions{
+		APIKey: "test-key",
+		Model:  "gpt-realtime",
+		URL:    "ws" + strings.TrimPrefix(server.URL, "http"),
+	})
+	cfg := DefaultSessionConfig("voice")
+	client.sessionConfig = &cfg
+	client.sessionDirty = true
+
+	if err := client.AppendInputAudio(context.Background(), []byte{0x01, 0x02}); err != nil {
+		t.Fatalf("append input audio: %v", err)
+	}
+
+	first := <-received
+	second := <-received
+	if first["type"] != "session.update" {
+		t.Fatalf("expected first event to be session.update, got %#v", first["type"])
+	}
+	if second["type"] != "input_audio_buffer.append" {
+		t.Fatalf("expected second event to be input_audio_buffer.append, got %#v", second["type"])
+	}
+}

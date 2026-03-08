@@ -43,6 +43,9 @@ type WebsocketRealtimeClient struct {
 	connectedAt *time.Time
 	lastError   string
 	events      chan ServerEvent
+
+	sessionConfig *SessionConfig
+	sessionDirty  bool
 }
 
 func NewRealtimeClient(opts RealtimeOptions) *WebsocketRealtimeClient {
@@ -112,31 +115,12 @@ func (c *WebsocketRealtimeClient) Close() error {
 }
 
 func (c *WebsocketRealtimeClient) ConfigureSession(ctx context.Context, session SessionConfig) error {
-	return c.send(ctx, map[string]any{
-		"type": "session.update",
-		"session": map[string]any{
-			"type":              "realtime",
-			"instructions":      session.Instructions,
-			"output_modalities": []string{"audio"},
-			"audio": map[string]any{
-				"input": map[string]any{
-					"format": map[string]any{
-						"type": session.InputAudioFormat,
-						"rate": session.OutputSampleRate,
-					},
-				},
-				"output": map[string]any{
-					"format": session.OutputAudioFormat,
-					"voice":  session.Voice,
-				},
-			},
-			"turn_detection": map[string]any{
-				"type":               session.TurnDetection,
-				"create_response":    session.CreateResponse,
-				"interrupt_response": session.InterruptResponse,
-			},
-		},
-	})
+	c.mu.Lock()
+	config := session
+	c.sessionConfig = &config
+	c.sessionDirty = true
+	c.mu.Unlock()
+	return c.send(ctx, sessionUpdateEvent(session))
 }
 
 func (c *WebsocketRealtimeClient) AppendInputAudio(ctx context.Context, pcm []byte) error {
@@ -213,6 +197,11 @@ func (c *WebsocketRealtimeClient) send(ctx context.Context, event any) error {
 	if err := c.Connect(ctx); err != nil {
 		return err
 	}
+	if !isSessionUpdateEvent(event) {
+		if err := c.ensureSessionConfigured(ctx); err != nil {
+			return err
+		}
+	}
 	payload, err := json.Marshal(event)
 	if err != nil {
 		return fmt.Errorf("marshal realtime event: %w", err)
@@ -233,5 +222,58 @@ func (c *WebsocketRealtimeClient) send(ctx context.Context, event any) error {
 		c.mu.Unlock()
 		return fmt.Errorf("write realtime event: %w", err)
 	}
+	if isSessionUpdateEvent(event) {
+		c.mu.Lock()
+		c.sessionDirty = false
+		c.mu.Unlock()
+	}
 	return nil
+}
+
+func (c *WebsocketRealtimeClient) ensureSessionConfigured(ctx context.Context) error {
+	c.mu.RLock()
+	config := c.sessionConfig
+	dirty := c.sessionDirty
+	c.mu.RUnlock()
+	if !dirty || config == nil {
+		return nil
+	}
+	return c.send(ctx, sessionUpdateEvent(*config))
+}
+
+func sessionUpdateEvent(session SessionConfig) map[string]any {
+	return map[string]any{
+		"type": "session.update",
+		"session": map[string]any{
+			"type":              "realtime",
+			"instructions":      session.Instructions,
+			"output_modalities": []string{"audio"},
+			"audio": map[string]any{
+				"input": map[string]any{
+					"format": map[string]any{
+						"type": session.InputAudioFormat,
+						"rate": session.OutputSampleRate,
+					},
+				},
+				"output": map[string]any{
+					"format": session.OutputAudioFormat,
+					"voice":  session.Voice,
+				},
+			},
+			"turn_detection": map[string]any{
+				"type":               session.TurnDetection,
+				"create_response":    session.CreateResponse,
+				"interrupt_response": session.InterruptResponse,
+			},
+		},
+	}
+}
+
+func isSessionUpdateEvent(event any) bool {
+	payload, ok := event.(map[string]any)
+	if !ok {
+		return false
+	}
+	kind, _ := payload["type"].(string)
+	return kind == "session.update"
 }
