@@ -145,9 +145,3 @@ func TestVoiceRuntimeTracksSpeakingUpdatesAndPackets(t *testing.T) {
 		t.Fatal("expected joinedAt to be set")
 	}
 }
-
-func TestVoiceReceiveIdleWarnAfterIsLongEnoughForLateFirstPacket(t *testing.T) {
-	if voiceReceiveIdleWarnAfter < 10*time.Second {
-		t.Fatalf("expected idle warning threshold to avoid premature warnings, got %s", voiceReceiveIdleWarnAfter)
-	}
-}

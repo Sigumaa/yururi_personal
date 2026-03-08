@@ -12,8 +12,6 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-const voiceReceiveIdleWarnAfter = 15 * time.Second
-
 type voiceRuntime struct {
 	conn     *discordgo.VoiceConnection
 	guildID  string
@@ -249,16 +247,8 @@ func (c *Client) waitForVoiceReady(ctx context.Context, conn *discordgo.VoiceCon
 }
 
 func (c *Client) forwardVoicePackets(runtime *voiceRuntime) {
-	idleTimer := time.NewTimer(voiceReceiveIdleWarnAfter)
-	defer idleTimer.Stop()
-	idleWarned := false
 	for {
 		select {
-		case <-idleTimer.C:
-			packetCount, speakingUpdates, joinedAt := runtime.stats()
-			conn := runtime.conn
-			slog.Warn("voice receive idle", "guild_id", runtime.guildID, "channel_id", runtime.channel, "elapsed", time.Since(joinedAt).Round(time.Millisecond), "packets", packetCount, "speaking_updates", speakingUpdates, "conn_ready", conn != nil && conn.Ready, "opus_recv_nil", conn == nil || conn.OpusRecv == nil)
-			idleWarned = true
 		case <-runtime.closeCh:
 			return
 		case packet, ok := <-runtime.conn.OpusRecv:
@@ -270,9 +260,6 @@ func (c *Client) forwardVoicePackets(runtime *voiceRuntime) {
 			packetCount := runtime.markPacket()
 			if packetCount == 1 {
 				slog.Debug("voice receive first packet", "guild_id", runtime.guildID, "channel_id", runtime.channel, "ssrc", packet.SSRC, "sequence", packet.Sequence, "opus_bytes", len(packet.Opus))
-			}
-			if idleWarned {
-				idleWarned = false
 			}
 			userID := runtime.speaker(packet.SSRC)
 			username := c.lookupVoiceUsername(runtime.guildID, userID)
