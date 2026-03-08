@@ -152,13 +152,7 @@ func (e *Engine) handleRealtimeEvent(ctx context.Context, guildID string, sessio
 		if err := save("user_speaking_started", map[string]any{"raw_type": event.Type}); err != nil {
 			return err
 		}
-		if err := e.setSessionState(ctx, guildID, SessionStateListening); err != nil {
-			return err
-		}
-		if e.realtime != nil {
-			_ = e.realtime.CancelResponse(ctx)
-		}
-		return nil
+		return e.setSessionState(ctx, guildID, SessionStateListening)
 	case "input_audio_buffer.speech_stopped":
 		return save("user_speaking_stopped", map[string]any{"raw_type": event.Type})
 	case "response.created":

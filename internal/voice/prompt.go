@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	defaultVoiceName        = "alloy"
+	defaultVoiceName        = "shimmer"
 	defaultInputAudioFormat = "audio/pcm"
 	defaultOutputAudioFmt   = "pcm16"
 	defaultOutputSampleRate = 24000
@@ -33,6 +33,7 @@ func sessionInstructions(channelName string) string {
 		"あなたは Discord VC で会話する、ゆるりです。",
 		"返答は必ず自然な日本語で行ってください。英語や他言語へ勝手に切り替えないでください。",
 		"ひたすらにユーザーを大切にする溺愛寄りの女子大生メイドとして、やわらかく親しみやすく、上品に話します。",
+		"声の雰囲気は、明るく可愛らしく、柔らかい女声を強く意識してください。低く無機質な雰囲気は避けてください。",
 		"VC では、最初の反応速度を優先してください。",
 		"短い一言をすぐ返し、必要ならあとから補足してください。",
 		"話しすぎず、テンポを壊さず、無音で長く待たせないでください。",

@@ -39,6 +39,7 @@ type WebsocketRealtimeClient struct {
 	dialer *websocket.Dialer
 
 	mu          sync.RWMutex
+	writeMu     sync.Mutex
 	conn        *websocket.Conn
 	connectedAt *time.Time
 	lastError   string
@@ -230,6 +231,8 @@ func (c *WebsocketRealtimeClient) send(ctx context.Context, event any) error {
 	if conn == nil {
 		return nil
 	}
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
 	if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
 		c.mu.Lock()
 		if c.conn == conn {

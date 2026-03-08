@@ -707,6 +707,39 @@ func TestFallbackTurnCommitSkipsWhenResponseAlreadyStarted(t *testing.T) {
 	}
 }
 
+func TestSpeechStartedDoesNotCancelResponseDirectly(t *testing.T) {
+	store, err := memory.Open(filepath.Join(t.TempDir(), "voice-speech-started.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	discord := &discordStub{
+		channel: discordsvc.Channel{ID: "vc-1", Name: "voice"},
+		members: []discordsvc.VoiceMember{{UserID: "owner", Username: "shiyui", ChannelID: "vc-1"}},
+	}
+	realtime := &realtimeStub{events: make(chan ServerEvent, 16)}
+	engine := NewEngine(
+		store,
+		discord,
+		realtime,
+		"owner",
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
+	if _, err := engine.Join(context.Background(), "g-1", "vc-1"); err != nil {
+		t.Fatalf("join: %v", err)
+	}
+
+	if err := engine.handleRealtimeEvent(context.Background(), "g-1", "session-1", mustServerEvent(t, map[string]any{
+		"type": "input_audio_buffer.speech_started",
+	})); err != nil {
+		t.Fatalf("handle speech_started: %v", err)
+	}
+	if realtime.canceled != 0 {
+		t.Fatalf("expected speech_started not to cancel directly, canceled=%d", realtime.canceled)
+	}
+}
+
 func mustServerEvent(t *testing.T, payload map[string]any) ServerEvent {
 	t.Helper()
 	raw, err := json.Marshal(payload)
