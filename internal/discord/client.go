@@ -145,6 +145,7 @@ type VoicePacket struct {
 }
 
 func New(token string) (*Client, error) {
+	installVoiceGatewayLogger()
 	session, err := discordgo.New("Bot " + token)
 	if err != nil {
 		return nil, fmt.Errorf("create discord session: %w", err)

@@ -59,18 +59,27 @@ func (r *voiceRuntime) speaker(ssrc uint32) string {
 }
 
 func (c *Client) JoinVoice(ctx context.Context, guildID string, channelID string, mute bool, deaf bool) (VoiceSession, error) {
+	startedAt := time.Now().UTC()
+	channel, channelErr := c.GetChannel(ctx, channelID)
 	conn, err := c.session.ChannelVoiceJoin(guildID, channelID, mute, deaf)
 	if err != nil {
-		return VoiceSession{}, wrapDiscordError("join voice", err)
+		closeEvent, ok := latestVoiceGatewayCloseSince(startedAt)
+		if channelErr == nil {
+			return VoiceSession{}, classifyVoiceJoinError(err, channel, closeEvent, ok)
+		}
+		return VoiceSession{}, classifyVoiceJoinError(err, Channel{ID: channelID}, closeEvent, ok)
 	}
 	if err := c.waitForVoiceReady(ctx, conn); err != nil {
 		_ = conn.Disconnect()
-		return VoiceSession{}, fmt.Errorf("wait for voice ready: %w", err)
+		closeEvent, ok := latestVoiceGatewayCloseSince(startedAt)
+		if channelErr == nil {
+			return VoiceSession{}, classifyVoiceJoinError(fmt.Errorf("wait for voice ready: %w", err), channel, closeEvent, ok)
+		}
+		return VoiceSession{}, classifyVoiceJoinError(fmt.Errorf("wait for voice ready: %w", err), Channel{ID: channelID}, closeEvent, ok)
 	}
-	channel, err := c.GetChannel(ctx, channelID)
-	if err != nil {
+	if channelErr != nil {
 		_ = conn.Disconnect()
-		return VoiceSession{}, err
+		return VoiceSession{}, channelErr
 	}
 	runtime := newVoiceRuntime(guildID, channelID, conn)
 	conn.AddHandler(func(vc *discordgo.VoiceConnection, update *discordgo.VoiceSpeakingUpdate) {
