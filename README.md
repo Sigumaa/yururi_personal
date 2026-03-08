@@ -57,10 +57,10 @@ VC 音声の encode / decode には `libopus` が必要。
 
 ## DAVE Setup
 
-Discord VC の E2EE/DAVE 検証には `sh1ma/discordgo` fork と `libdave` が必要。
+Discord VC の E2EE/DAVE 検証には `Sigumaa/discordgo` fork と `libdave` が必要。
 
 ```bash
 ./scripts/setup-discordgo-dave.sh
 ```
 
-この script は `any/discordgo-dave/` に fork を clone し、upstream の `setup-dave.sh` を実行し、`go.work` で local replace を作る。
+この script は `any/discordgo/` に fork を clone し、upstream 由来の `setup-dave.sh` を実行し、`go.work` で local replace を作る。

@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
-FORK_DIR="${ROOT_DIR}/any/discordgo-dave"
-FORK_REPO="https://github.com/sh1ma/discordgo.git"
+FORK_DIR="${ROOT_DIR}/any/discordgo"
+FORK_REPO="https://github.com/Sigumaa/discordgo.git"
 
 need_cmd() {
   local name="$1"
@@ -32,7 +32,7 @@ go 1.24.0
 
 use .
 
-replace github.com/bwmarrin/discordgo => ./any/discordgo-dave
+replace github.com/bwmarrin/discordgo => ./any/discordgo
 EOF
 }
 
