@@ -14,6 +14,7 @@ type Config struct {
 	AppName  string        `toml:"app_name"`
 	Timezone string        `toml:"timezone"`
 	Discord  DiscordConfig `toml:"discord"`
+	OpenAI   OpenAIConfig  `toml:"openai"`
 	Runtime  RuntimeConfig `toml:"runtime"`
 	Codex    CodexConfig   `toml:"codex"`
 }
@@ -26,6 +27,10 @@ type DiscordConfig struct {
 
 type RuntimeConfig struct {
 	Root string `toml:"root"`
+}
+
+type OpenAIConfig struct {
+	APIKey string `toml:"api_key"`
 }
 
 type CodexConfig struct {
@@ -134,6 +139,9 @@ func overrideFromEnv(cfg *Config) {
 	}
 	if v := os.Getenv("YURURI_RUNTIME_ROOT"); v != "" {
 		cfg.Runtime.Root = v
+	}
+	if v := os.Getenv("OPENAI_API_KEY"); v != "" {
+		cfg.OpenAI.APIKey = v
 	}
 }
 

@@ -6,6 +6,9 @@ token = ""
 guild_id = ""
 owner_user_id = ""
 
+[openai]
+api_key = ""
+
 [runtime]
 root = "./runtime"
 

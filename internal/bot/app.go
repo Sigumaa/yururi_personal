@@ -5,7 +5,6 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -100,7 +99,7 @@ func (a *App) buildVoiceEngine() *voice.Engine {
 		a.store,
 		a.discord,
 		voice.NewRealtimeClient(voice.RealtimeOptions{
-			APIKey: strings.TrimSpace(os.Getenv("OPENAI_API_KEY")),
+			APIKey: strings.TrimSpace(a.cfg.OpenAI.APIKey),
 			Model:  voice.DefaultRealtimeModel,
 		}),
 		a.cfg.Discord.OwnerUserID,

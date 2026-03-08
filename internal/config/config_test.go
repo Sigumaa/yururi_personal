@@ -11,6 +11,7 @@ func TestLoadAndEnvOverride(t *testing.T) {
 	t.Setenv("YURURI_GUILD_ID", "guild")
 	t.Setenv("YURURI_OWNER_USER_ID", "owner")
 	t.Setenv("YURURI_RUNTIME_ROOT", t.TempDir())
+	t.Setenv("OPENAI_API_KEY", "env-openai-key")
 
 	configPath := filepath.Join(t.TempDir(), "bot.toml")
 	if err := os.WriteFile(configPath, []byte(`
@@ -30,6 +31,9 @@ token = "file-token"
 	}
 	if !filepath.IsAbs(cfg.Runtime.Root) {
 		t.Fatalf("expected absolute runtime root, got %q", cfg.Runtime.Root)
+	}
+	if cfg.OpenAI.APIKey != "env-openai-key" {
+		t.Fatalf("expected env openai api key override, got %q", cfg.OpenAI.APIKey)
 	}
 }
 
