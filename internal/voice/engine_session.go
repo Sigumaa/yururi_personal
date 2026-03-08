@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	discordsvc "github.com/Sigumaa/yururi_personal/internal/discord"
 	"github.com/Sigumaa/yururi_personal/internal/memory"
 	"github.com/bwmarrin/discordgo"
 )
@@ -50,6 +51,7 @@ func (e *Engine) Join(ctx context.Context, guildID string, channelID string) (Se
 	}); err != nil {
 		return Session{}, err
 	}
+	e.logJoinVoiceStateSnapshot(ctx, guildID, channelID, len(session.Members))
 	e.startSessionRuntime(guildID, session)
 	if err := e.store.SaveVoiceEvent(ctx, memory.VoiceEvent{
 		SessionID: session.ID,
@@ -64,6 +66,50 @@ func (e *Engine) Join(ctx context.Context, guildID string, channelID string) (Se
 		return Session{}, err
 	}
 	return session, nil
+}
+
+func (e *Engine) logJoinVoiceStateSnapshot(ctx context.Context, guildID string, channelID string, memberCount int) {
+	attrs := []any{
+		"guild_id", guildID,
+		"channel_id", channelID,
+		"member_count", memberCount,
+	}
+
+	if botUserID := strings.TrimSpace(e.discord.SelfUserID()); botUserID != "" {
+		attrs = append(attrs, "bot_user_id", botUserID)
+		if state, ok, err := e.discord.CurrentMemberVoiceState(ctx, guildID, botUserID); err != nil {
+			e.logger.Warn("voice join state lookup failed", "guild_id", guildID, "channel_id", channelID, "user_id", botUserID, "role", "bot", "error", err)
+		} else {
+			attrs = appendVoiceStateAttrs(attrs, "bot", state, ok)
+		}
+	}
+
+	if ownerUserID := strings.TrimSpace(e.ownerUserID); ownerUserID != "" {
+		attrs = append(attrs, "owner_user_id", ownerUserID)
+		if state, ok, err := e.discord.CurrentMemberVoiceState(ctx, guildID, ownerUserID); err != nil {
+			e.logger.Warn("voice join state lookup failed", "guild_id", guildID, "channel_id", channelID, "user_id", ownerUserID, "role", "owner", "error", err)
+		} else {
+			attrs = appendVoiceStateAttrs(attrs, "owner", state, ok)
+		}
+	}
+
+	e.logger.Info("voice join state snapshot", attrs...)
+}
+
+func appendVoiceStateAttrs(attrs []any, prefix string, state discordsvc.VoiceState, ok bool) []any {
+	attrs = append(attrs, prefix+"_state_known", ok)
+	if !ok {
+		return attrs
+	}
+	return append(attrs,
+		prefix+"_channel_id", state.ChannelID,
+		prefix+"_username", state.Username,
+		prefix+"_muted", state.Muted,
+		prefix+"_deafened", state.Deafened,
+		prefix+"_self_muted", state.SelfMuted,
+		prefix+"_self_deafened", state.SelfDeafened,
+		prefix+"_suppressed", state.Suppressed,
+	)
 }
 
 func (e *Engine) Leave(ctx context.Context, guildID string, reason string) error {

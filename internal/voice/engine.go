@@ -14,10 +14,12 @@ type discordService interface {
 	JoinVoice(context.Context, string, string, bool, bool) (discordsvc.VoiceSession, error)
 	LeaveVoice(context.Context, string) error
 	CurrentVoiceSession(context.Context, string) (discordsvc.VoiceSession, bool, error)
+	CurrentMemberVoiceState(context.Context, string, string) (discordsvc.VoiceState, bool, error)
 	VoiceChannelMembers(context.Context, string, string) ([]discordsvc.VoiceMember, error)
 	VoiceAudioPackets(context.Context, string) (<-chan discordsvc.VoicePacket, error)
 	SendVoiceOpus(context.Context, string, []byte) error
 	SetVoiceSpeaking(context.Context, string, bool) error
+	SelfUserID() string
 }
 
 type Engine struct {

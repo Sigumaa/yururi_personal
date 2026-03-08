@@ -1,12 +1,14 @@
 package voice
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"io"
 	"log/slog"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,13 +18,15 @@ import (
 )
 
 type discordStub struct {
-	channel  discordsvc.Channel
-	members  []discordsvc.VoiceMember
-	joined   bool
-	left     bool
-	packets  chan discordsvc.VoicePacket
-	sent     [][]byte
-	speaking []bool
+	channel    discordsvc.Channel
+	members    []discordsvc.VoiceMember
+	voiceState map[string]discordsvc.VoiceState
+	selfUserID string
+	joined     bool
+	left       bool
+	packets    chan discordsvc.VoicePacket
+	sent       [][]byte
+	speaking   []bool
 }
 
 func (d *discordStub) GetChannel(context.Context, string) (discordsvc.Channel, error) {
@@ -53,6 +57,14 @@ func (d *discordStub) CurrentVoiceSession(context.Context, string) (discordsvc.V
 	}, d.joined && !d.left, nil
 }
 
+func (d *discordStub) CurrentMemberVoiceState(_ context.Context, _ string, userID string) (discordsvc.VoiceState, bool, error) {
+	if d.voiceState == nil {
+		return discordsvc.VoiceState{}, false, nil
+	}
+	state, ok := d.voiceState[userID]
+	return state, ok, nil
+}
+
 func (d *discordStub) VoiceChannelMembers(context.Context, string, string) ([]discordsvc.VoiceMember, error) {
 	return d.members, nil
 }
@@ -72,6 +84,10 @@ func (d *discordStub) SendVoiceOpus(_ context.Context, _ string, opus []byte) er
 func (d *discordStub) SetVoiceSpeaking(_ context.Context, _ string, speaking bool) error {
 	d.speaking = append(d.speaking, speaking)
 	return nil
+}
+
+func (d *discordStub) SelfUserID() string {
+	return d.selfUserID
 }
 
 type realtimeStub struct {
@@ -196,6 +212,44 @@ func TestEngineJoinStatusAndLeave(t *testing.T) {
 		t.Fatalf("active voice session after leave: %v", err)
 	} else if ok {
 		t.Fatalf("expected no active voice session after leave")
+	}
+}
+
+func TestEngineJoinLogsVoiceStateSnapshot(t *testing.T) {
+	store, err := memory.Open(filepath.Join(t.TempDir(), "voice-state.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	engine := NewEngine(
+		store,
+		&discordStub{
+			channel:    discordsvc.Channel{ID: "vc-1", Name: "voice"},
+			members:    []discordsvc.VoiceMember{{UserID: "owner", Username: "shiyui", ChannelID: "vc-1"}},
+			selfUserID: "bot",
+			voiceState: map[string]discordsvc.VoiceState{
+				"bot":   {UserID: "bot", Username: "yururi", ChannelID: "vc-1"},
+				"owner": {UserID: "owner", Username: "shiyui", ChannelID: "vc-1", SelfMuted: true},
+			},
+		},
+		&realtimeStub{},
+		"owner",
+		logger,
+	)
+
+	if _, err := engine.Join(context.Background(), "g-1", "vc-1"); err != nil {
+		t.Fatalf("join: %v", err)
+	}
+
+	output := logs.String()
+	if !strings.Contains(output, "voice join state snapshot") {
+		t.Fatalf("expected join state snapshot log, got %q", output)
+	}
+	if !strings.Contains(output, "bot_state_known=true") || !strings.Contains(output, "owner_state_known=true") {
+		t.Fatalf("expected bot and owner voice state in logs, got %q", output)
 	}
 }
 
