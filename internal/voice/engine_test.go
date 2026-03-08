@@ -22,6 +22,7 @@ type discordStub struct {
 	members    []discordsvc.VoiceMember
 	voiceState map[string]discordsvc.VoiceState
 	selfUserID string
+	joinCalls  int
 	joined     bool
 	left       bool
 	packets    chan discordsvc.VoicePacket
@@ -34,6 +35,7 @@ func (d *discordStub) GetChannel(context.Context, string) (discordsvc.Channel, e
 }
 
 func (d *discordStub) JoinVoice(context.Context, string, string, bool, bool) (discordsvc.VoiceSession, error) {
+	d.joinCalls++
 	d.joined = true
 	return discordsvc.VoiceSession{
 		GuildID:     "g-1",
@@ -250,6 +252,47 @@ func TestEngineJoinLogsVoiceStateSnapshot(t *testing.T) {
 	}
 	if !strings.Contains(output, "bot_state_known=true") || !strings.Contains(output, "owner_state_known=true") {
 		t.Fatalf("expected bot and owner voice state in logs, got %q", output)
+	}
+}
+
+func TestEngineJoinReusesActiveSessionForSameChannel(t *testing.T) {
+	store, err := memory.Open(filepath.Join(t.TempDir(), "voice-reuse.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	discord := &discordStub{
+		channel:    discordsvc.Channel{ID: "vc-1", Name: "voice"},
+		members:    []discordsvc.VoiceMember{{UserID: "owner", Username: "shiyui", ChannelID: "vc-1"}},
+		selfUserID: "bot",
+		voiceState: map[string]discordsvc.VoiceState{
+			"bot":   {UserID: "bot", Username: "yururi", ChannelID: "vc-1"},
+			"owner": {UserID: "owner", Username: "shiyui", ChannelID: "vc-1"},
+		},
+	}
+	engine := NewEngine(
+		store,
+		discord,
+		&realtimeStub{},
+		"owner",
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
+
+	first, err := engine.Join(context.Background(), "g-1", "vc-1")
+	if err != nil {
+		t.Fatalf("first join: %v", err)
+	}
+	second, err := engine.Join(context.Background(), "g-1", "vc-1")
+	if err != nil {
+		t.Fatalf("second join: %v", err)
+	}
+
+	if discord.joinCalls != 1 {
+		t.Fatalf("expected one discord join call, got %d", discord.joinCalls)
+	}
+	if second.ID != first.ID {
+		t.Fatalf("expected reused session id %q, got %q", first.ID, second.ID)
 	}
 }
 

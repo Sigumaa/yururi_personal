@@ -12,6 +12,11 @@ import (
 )
 
 func (e *Engine) Join(ctx context.Context, guildID string, channelID string) (Session, error) {
+	if current, ok := e.currentSession(guildID); ok && current.ChannelID == channelID {
+		current.Realtime = statusOf(e.realtime)
+		e.logger.Info("voice join reused active session", "guild_id", guildID, "channel_id", channelID, "session_id", current.ID, "state", current.State)
+		return current, nil
+	}
 	now := time.Now().UTC()
 	channel, err := e.discord.GetChannel(ctx, channelID)
 	if err != nil {
@@ -66,6 +71,17 @@ func (e *Engine) Join(ctx context.Context, guildID string, channelID string) (Se
 		return Session{}, err
 	}
 	return session, nil
+}
+
+func (e *Engine) currentSession(guildID string) (Session, bool) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	runtime, ok := e.sessions[guildID]
+	if !ok || runtime == nil {
+		return Session{}, false
+	}
+	session := runtime.session
+	return session, true
 }
 
 func (e *Engine) logJoinVoiceStateSnapshot(ctx context.Context, guildID string, channelID string, memberCount int) {
