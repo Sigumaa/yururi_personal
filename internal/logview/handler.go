@@ -1,7 +1,9 @@
 package logview
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -80,16 +82,10 @@ func (h *Handler) Handle(_ context.Context, record slog.Record) error {
 		flat = append(flat, flattenAttr(h.groups, attr)...)
 	}
 
-	inline, block := partitionAttrs(flat)
-
 	var b strings.Builder
 	b.WriteString(h.renderHeader(record.Time, record.Level, record.Message))
-	if len(inline) > 0 {
-		b.WriteString(" | ")
-		b.WriteString(strings.Join(inline, "  "))
-	}
-	for _, line := range block {
-		b.WriteString("\n    ")
+	for _, line := range renderAttrLines(flat, h.color) {
+		b.WriteString("\n  ")
 		b.WriteString(line)
 	}
 	b.WriteByte('\n')
@@ -163,52 +159,65 @@ func flattenAttr(groups []string, attr slog.Attr) []slog.Attr {
 	return []slog.Attr{clone}
 }
 
-func partitionAttrs(attrs []slog.Attr) ([]string, []string) {
-	inline := make([]string, 0, len(attrs))
-	block := make([]string, 0, len(attrs))
+func renderAttrLines(attrs []slog.Attr, color bool) []string {
+	if len(attrs) == 0 {
+		return nil
+	}
+	width := 0
 	for _, attr := range attrs {
-		value := renderValue(attr.Value)
-		entry := attr.Key + "=" + value
-		if shouldInline(attr.Key, value) {
-			inline = append(inline, entry)
-			continue
-		}
-		block = append(block, attr.Key+": "+renderBlockValue(attr.Value))
-	}
-	return inline, block
-}
-
-func shouldInline(key string, value string) bool {
-	if strings.Contains(value, "\n") {
-		return false
-	}
-	if len(value) > 72 {
-		return false
-	}
-	for _, token := range []string{
-		"preview",
-		"arguments",
-		"response",
-		"message",
-		"prompt",
-		"content",
-		"bundle",
-		"details",
-		"line",
-		"error_data",
-	} {
-		if strings.Contains(key, token) {
-			return false
+		if l := len(attr.Key); l > width {
+			width = l
 		}
 	}
-	return true
+	if width < 12 {
+		width = 12
+	}
+	if width > 24 {
+		width = 24
+	}
+	lines := make([]string, 0, len(attrs))
+	for _, attr := range attrs {
+		key := attr.Key
+		if color {
+			key = colorize("\x1b[2m", key)
+		}
+		valueLines := renderBlockLines(attr.Value)
+		if len(valueLines) == 0 {
+			valueLines = []string{`""`}
+		}
+		pad := attr.Key
+		if len(attr.Key) < width {
+			pad += strings.Repeat(" ", width-len(attr.Key))
+		}
+		if color {
+			pad = key
+			if len(attr.Key) < width {
+				pad += strings.Repeat(" ", width-len(attr.Key))
+			}
+		}
+		lines = append(lines, pad+"  "+valueLines[0])
+		indent := strings.Repeat(" ", width+2)
+		for _, extra := range valueLines[1:] {
+			lines = append(lines, indent+extra)
+		}
+	}
+	return lines
 }
 
-func renderValue(value slog.Value) string {
+func renderBlockLines(value slog.Value) []string {
+	text := renderDisplayValue(value)
+	lines := strings.Split(text, "\n")
+	for i := range lines {
+		lines[i] = strings.TrimRight(lines[i], " ")
+	}
+	return lines
+}
+
+func renderDisplayValue(value slog.Value) string {
 	value = value.Resolve()
 	switch value.Kind() {
 	case slog.KindString:
-		return quoteIfNeeded(value.String())
+		return formatDisplayString(value.String())
 	case slog.KindInt64:
 		return strconv.FormatInt(value.Int64(), 10)
 	case slog.KindUint64:
@@ -225,35 +234,42 @@ func renderValue(value slog.Value) string {
 	case slog.KindTime:
 		return value.Time().Format(time.RFC3339Nano)
 	case slog.KindAny:
-		return quoteIfNeeded(fmt.Sprint(value.Any()))
+		return formatDisplayString(fmt.Sprint(value.Any()))
 	default:
-		return quoteIfNeeded(value.String())
+		return formatDisplayString(value.String())
 	}
 }
 
-func renderBlockValue(value slog.Value) string {
-	text := renderValue(value)
-	if !strings.Contains(text, "\n") {
-		return text
-	}
-	lines := strings.Split(text, "\n")
-	for i := range lines {
-		if i == 0 {
-			continue
-		}
-		lines[i] = "  " + lines[i]
-	}
-	return strings.Join(lines, "\n")
-}
-
-func quoteIfNeeded(value string) string {
-	if value == "" {
+func formatDisplayString(value string) string {
+	switch {
+	case value == "":
 		return `""`
-	}
-	if strings.ContainsAny(value, " \t\r\n=|") {
-		return strconv.Quote(value)
+	case looksLikeJSON(value):
+		if pretty, ok := tryPrettyJSON(value); ok {
+			return pretty
+		}
 	}
 	return value
+}
+
+func looksLikeJSON(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return false
+	}
+	return strings.HasPrefix(value, "{") || strings.HasPrefix(value, "[")
+}
+
+func tryPrettyJSON(value string) (string, bool) {
+	var payload any
+	if json.Unmarshal([]byte(value), &payload) != nil {
+		return "", false
+	}
+	formatted, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return "", false
+	}
+	return string(bytes.TrimSpace(formatted)), true
 }
 
 func levelLabel(level slog.Level) string {
