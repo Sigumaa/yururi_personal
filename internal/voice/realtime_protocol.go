@@ -90,3 +90,17 @@ func (e ServerEvent) audioDelta() string {
 	}
 	return payload.Delta
 }
+
+func (e ServerEvent) errorInfo() (string, string, string) {
+	var payload struct {
+		Error struct {
+			Code    string `json:"code"`
+			Param   string `json:"param"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if !e.decode(&payload) {
+		return "", "", ""
+	}
+	return payload.Error.Code, payload.Error.Param, payload.Error.Message
+}

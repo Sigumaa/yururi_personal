@@ -46,6 +46,7 @@ type WebsocketRealtimeClient struct {
 
 	sessionConfig *SessionConfig
 	sessionDirty  bool
+	legacySchema  bool
 }
 
 func NewRealtimeClient(opts RealtimeOptions) *WebsocketRealtimeClient {
@@ -120,7 +121,7 @@ func (c *WebsocketRealtimeClient) ConfigureSession(ctx context.Context, session 
 	c.sessionConfig = &config
 	c.sessionDirty = true
 	c.mu.Unlock()
-	return c.send(ctx, sessionUpdateEvent(session))
+	return c.send(ctx, c.sessionUpdateEvent(session))
 }
 
 func (c *WebsocketRealtimeClient) AppendInputAudio(ctx context.Context, pcm []byte) error {
@@ -186,10 +187,27 @@ func (c *WebsocketRealtimeClient) readLoop() {
 		if err := json.Unmarshal(payload, &event); err != nil {
 			continue
 		}
+		c.handleProtocolCompatibility(event)
 		select {
 		case c.events <- event:
 		default:
 		}
+	}
+}
+
+func (c *WebsocketRealtimeClient) handleProtocolCompatibility(event ServerEvent) {
+	if event.Type != "error" {
+		return
+	}
+	code, param, _ := event.errorInfo()
+	if code != "unknown_parameter" || param != "session.audio" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.legacySchema = true
+	if c.sessionConfig != nil {
+		c.sessionDirty = true
 	}
 }
 
@@ -238,10 +256,20 @@ func (c *WebsocketRealtimeClient) ensureSessionConfigured(ctx context.Context) e
 	if !dirty || config == nil {
 		return nil
 	}
-	return c.send(ctx, sessionUpdateEvent(*config))
+	return c.send(ctx, c.sessionUpdateEvent(*config))
 }
 
-func sessionUpdateEvent(session SessionConfig) map[string]any {
+func (c *WebsocketRealtimeClient) sessionUpdateEvent(session SessionConfig) map[string]any {
+	c.mu.RLock()
+	legacy := c.legacySchema
+	c.mu.RUnlock()
+	if legacy {
+		return legacySessionUpdateEvent(session)
+	}
+	return nestedSessionUpdateEvent(session)
+}
+
+func nestedSessionUpdateEvent(session SessionConfig) map[string]any {
 	return map[string]any{
 		"type": "session.update",
 		"session": map[string]any{
@@ -260,6 +288,25 @@ func sessionUpdateEvent(session SessionConfig) map[string]any {
 					"voice":  session.Voice,
 				},
 			},
+			"turn_detection": map[string]any{
+				"type":               session.TurnDetection,
+				"create_response":    session.CreateResponse,
+				"interrupt_response": session.InterruptResponse,
+			},
+		},
+	}
+}
+
+func legacySessionUpdateEvent(session SessionConfig) map[string]any {
+	return map[string]any{
+		"type": "session.update",
+		"session": map[string]any{
+			"type":                "realtime",
+			"instructions":        session.Instructions,
+			"modalities":          []string{"audio"},
+			"voice":               session.Voice,
+			"input_audio_format":  session.InputAudioFormat,
+			"output_audio_format": session.OutputAudioFormat,
 			"turn_detection": map[string]any{
 				"type":               session.TurnDetection,
 				"create_response":    session.CreateResponse,

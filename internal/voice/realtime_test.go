@@ -157,3 +157,88 @@ func TestRealtimeClientAppliesPendingSessionBeforeAudioAppend(t *testing.T) {
 		t.Fatalf("expected second event to be input_audio_buffer.append, got %#v", second["type"])
 	}
 }
+
+func TestRealtimeClientFallsBackToLegacySessionSchemaOnUnknownAudioParameter(t *testing.T) {
+	upgrader := websocket.Upgrader{}
+	received := make(chan map[string]any, 8)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Fatalf("upgrade: %v", err)
+		}
+		defer conn.Close()
+		sentError := false
+		for {
+			_, payload, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			var event map[string]any
+			if err := json.Unmarshal(payload, &event); err != nil {
+				t.Fatalf("unmarshal client event: %v", err)
+			}
+			received <- event
+			if !sentError && event["type"] == "session.update" {
+				sentError = true
+				if err := conn.WriteJSON(map[string]any{
+					"type": "error",
+					"error": map[string]any{
+						"type":    "invalid_request_error",
+						"code":    "unknown_parameter",
+						"message": "Unknown parameter: 'session.audio'.",
+						"param":   "session.audio",
+					},
+				}); err != nil {
+					t.Fatalf("write error event: %v", err)
+				}
+			}
+		}
+	}))
+	defer server.Close()
+
+	client := NewRealtimeClient(RealtimeOptions{
+		APIKey: "test-key",
+		Model:  "gpt-realtime",
+		URL:    "ws" + strings.TrimPrefix(server.URL, "http"),
+	})
+
+	cfg := DefaultSessionConfig("voice")
+	if err := client.ConfigureSession(context.Background(), cfg); err != nil {
+		t.Fatalf("configure realtime session: %v", err)
+	}
+
+	first := <-received
+	session, ok := first["session"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected session payload, got %#v", first["session"])
+	}
+	if _, hasAudio := session["audio"]; !hasAudio {
+		t.Fatalf("expected initial nested audio schema, got %#v", session)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+
+	if err := client.AppendInputAudio(context.Background(), []byte{0x01, 0x02}); err != nil {
+		t.Fatalf("append input audio: %v", err)
+	}
+
+	second := <-received
+	legacySession, ok := second["session"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected fallback session payload, got %#v", second["session"])
+	}
+	if legacySession["audio"] != nil {
+		t.Fatalf("expected legacy schema without session.audio, got %#v", legacySession["audio"])
+	}
+	if legacySession["voice"] != defaultVoiceName {
+		t.Fatalf("expected legacy session.voice=%s, got %#v", defaultVoiceName, legacySession["voice"])
+	}
+	if legacySession["input_audio_format"] != defaultInputAudioFormat {
+		t.Fatalf("expected legacy input_audio_format=%s, got %#v", defaultInputAudioFormat, legacySession["input_audio_format"])
+	}
+
+	third := <-received
+	if third["type"] != "input_audio_buffer.append" {
+		t.Fatalf("expected input_audio_buffer.append after fallback, got %#v", third["type"])
+	}
+}
