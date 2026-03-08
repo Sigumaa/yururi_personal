@@ -3,6 +3,7 @@ package voice
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	discordsvc "github.com/Sigumaa/yururi_personal/internal/discord"
@@ -27,7 +28,11 @@ func (e *Engine) consumeDiscordAudio(ctx context.Context, guildID string, runtim
 			if !ok {
 				return
 			}
+			packet = e.resolveVoicePacketSpeaker(runtime, packet)
 			if !e.shouldProcessVoicePacket(packet) {
+				if packet.UserID == "" {
+					e.logger.Debug("voice packet ignored", "guild_id", guildID, "session_id", runtime.session.ID, "reason", "unknown_speaker", "ssrc", packet.SSRC, "sequence", packet.Sequence, "opus_bytes", len(packet.Opus))
+				}
 				continue
 			}
 			if err := e.forwardDiscordPacket(ctx, guildID, runtime, packet); err != nil {
@@ -42,6 +47,42 @@ func (e *Engine) shouldProcessVoicePacket(packet discordsvc.VoicePacket) bool {
 		return false
 	}
 	return packet.UserID == e.ownerUserID
+}
+
+func (e *Engine) resolveVoicePacketSpeaker(runtime *runtimeSession, packet discordsvc.VoicePacket) discordsvc.VoicePacket {
+	if runtime == nil || strings.TrimSpace(packet.UserID) != "" {
+		return packet
+	}
+	ownerMembers := 0
+	ownerName := ""
+	for _, member := range runtime.session.Members {
+		if member.Bot || member.UserID != e.ownerUserID {
+			continue
+		}
+		ownerMembers++
+		if ownerName == "" {
+			ownerName = member.Username
+		}
+	}
+	if ownerMembers != 1 {
+		return packet
+	}
+	humanMembers := 0
+	for _, member := range runtime.session.Members {
+		if member.Bot {
+			continue
+		}
+		humanMembers++
+	}
+	if humanMembers != 1 {
+		return packet
+	}
+	packet.UserID = e.ownerUserID
+	if strings.TrimSpace(packet.Username) == "" {
+		packet.Username = ownerName
+	}
+	e.logger.Debug("voice packet speaker inferred", "guild_id", packet.GuildID, "channel_id", packet.ChannelID, "ssrc", packet.SSRC, "user_id", packet.UserID)
+	return packet
 }
 
 func (e *Engine) forwardDiscordPacket(ctx context.Context, guildID string, runtime *runtimeSession, packet discordsvc.VoicePacket) error {
