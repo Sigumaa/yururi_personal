@@ -126,6 +126,24 @@ func (a *App) registerVoiceDiscordTools(registry *codex.ToolRegistry) {
 	})
 
 	registry.Register(codex.ToolSpec{
+		Name:        "discord.interrupt_voice",
+		Description: "現在の VC 応答や音声処理を割り込み、中断扱いにする",
+		InputSchema: objectSchema(fieldSchema("reason", "string", "割り込み理由")),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+		if a.voice == nil {
+			return codex.ToolResponse{}, errors.New("voice is not available")
+		}
+		var input struct {
+			Reason string `json:"reason"`
+		}
+		_ = json.Unmarshal(raw, &input)
+		if err := a.voice.Interrupt(ctx, a.cfg.Discord.GuildID, input.Reason); err != nil {
+			return codex.ToolResponse{}, err
+		}
+		return textTool("voice interrupted"), nil
+	})
+
+	registry.Register(codex.ToolSpec{
 		Name:        "discord.voice_session_status",
 		Description: "現在の VC session 状態、参加チャンネル、メンバー、Realtime 接続状態を確認する",
 		InputSchema: objectSchema(),

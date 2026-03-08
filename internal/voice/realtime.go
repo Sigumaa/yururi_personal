@@ -2,6 +2,8 @@ package voice
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -15,6 +17,13 @@ const DefaultRealtimeModel = "gpt-realtime"
 
 type RealtimeClient interface {
 	Connect(context.Context) error
+	ConfigureSession(context.Context, SessionConfig) error
+	AppendInputAudio(context.Context, []byte) error
+	CommitInputAudio(context.Context) error
+	ClearInputAudio(context.Context) error
+	CreateResponse(context.Context) error
+	CancelResponse(context.Context) error
+	Events() <-chan ServerEvent
 	Close() error
 	Status() RealtimeStatus
 }
@@ -33,6 +42,7 @@ type WebsocketRealtimeClient struct {
 	conn        *websocket.Conn
 	connectedAt *time.Time
 	lastError   string
+	events      chan ServerEvent
 }
 
 func NewRealtimeClient(opts RealtimeOptions) *WebsocketRealtimeClient {
@@ -48,6 +58,7 @@ func NewRealtimeClient(opts RealtimeOptions) *WebsocketRealtimeClient {
 			Proxy:            http.ProxyFromEnvironment,
 			HandshakeTimeout: 15 * time.Second,
 		},
+		events: make(chan ServerEvent, 64),
 	}
 }
 
@@ -100,6 +111,58 @@ func (c *WebsocketRealtimeClient) Close() error {
 	return conn.Close()
 }
 
+func (c *WebsocketRealtimeClient) ConfigureSession(ctx context.Context, session SessionConfig) error {
+	return c.send(ctx, map[string]any{
+		"type": "session.update",
+		"session": map[string]any{
+			"type":               "realtime",
+			"instructions":       session.Instructions,
+			"input_audio_format": session.InputAudioFormat,
+			"audio": map[string]any{
+				"output": map[string]any{
+					"format": map[string]any{
+						"type":        session.OutputAudioFormat,
+						"sample_rate": session.OutputSampleRate,
+					},
+					"voice": session.Voice,
+				},
+			},
+			"turn_detection": map[string]any{
+				"type":               session.TurnDetection,
+				"create_response":    session.CreateResponse,
+				"interrupt_response": session.InterruptResponse,
+			},
+		},
+	})
+}
+
+func (c *WebsocketRealtimeClient) AppendInputAudio(ctx context.Context, pcm []byte) error {
+	return c.send(ctx, map[string]any{
+		"type":  "input_audio_buffer.append",
+		"audio": base64.StdEncoding.EncodeToString(pcm),
+	})
+}
+
+func (c *WebsocketRealtimeClient) CommitInputAudio(ctx context.Context) error {
+	return c.send(ctx, map[string]any{"type": "input_audio_buffer.commit"})
+}
+
+func (c *WebsocketRealtimeClient) ClearInputAudio(ctx context.Context) error {
+	return c.send(ctx, map[string]any{"type": "input_audio_buffer.clear"})
+}
+
+func (c *WebsocketRealtimeClient) CreateResponse(ctx context.Context) error {
+	return c.send(ctx, map[string]any{"type": "response.create"})
+}
+
+func (c *WebsocketRealtimeClient) CancelResponse(ctx context.Context) error {
+	return c.send(ctx, map[string]any{"type": "response.cancel"})
+}
+
+func (c *WebsocketRealtimeClient) Events() <-chan ServerEvent {
+	return c.events
+}
+
 func (c *WebsocketRealtimeClient) Status() RealtimeStatus {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -121,7 +184,8 @@ func (c *WebsocketRealtimeClient) readLoop() {
 		return
 	}
 	for {
-		if _, _, err := conn.ReadMessage(); err != nil {
+		_, payload, err := conn.ReadMessage()
+		if err != nil {
 			c.mu.Lock()
 			if c.conn == conn {
 				c.conn = nil
@@ -131,5 +195,40 @@ func (c *WebsocketRealtimeClient) readLoop() {
 			c.mu.Unlock()
 			return
 		}
+		var event ServerEvent
+		if err := json.Unmarshal(payload, &event); err != nil {
+			continue
+		}
+		select {
+		case c.events <- event:
+		default:
+		}
 	}
+}
+
+func (c *WebsocketRealtimeClient) send(ctx context.Context, event any) error {
+	if err := c.Connect(ctx); err != nil {
+		return err
+	}
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return fmt.Errorf("marshal realtime event: %w", err)
+	}
+	c.mu.RLock()
+	conn := c.conn
+	c.mu.RUnlock()
+	if conn == nil {
+		return nil
+	}
+	if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+		c.mu.Lock()
+		if c.conn == conn {
+			c.conn = nil
+			c.connectedAt = nil
+			c.lastError = err.Error()
+		}
+		c.mu.Unlock()
+		return fmt.Errorf("write realtime event: %w", err)
+	}
+	return nil
 }

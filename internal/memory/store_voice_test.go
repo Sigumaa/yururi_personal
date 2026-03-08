@@ -66,6 +66,22 @@ func TestVoiceSessionTranscriptAndEventLifecycle(t *testing.T) {
 		t.Fatalf("unexpected transcripts: %#v", transcripts)
 	}
 
+	recentTranscripts, err := store.RecentVoiceTranscripts(ctx, 10)
+	if err != nil {
+		t.Fatalf("recent voice transcripts: %v", err)
+	}
+	if len(recentTranscripts) != 1 || recentTranscripts[0].Content != "VC で話したい" {
+		t.Fatalf("unexpected recent transcripts: %#v", recentTranscripts)
+	}
+
+	searchTranscripts, err := store.SearchVoiceTranscripts(ctx, "話したい", 10)
+	if err != nil {
+		t.Fatalf("search voice transcripts: %v", err)
+	}
+	if len(searchTranscripts) != 1 || searchTranscripts[0].Content != "VC で話したい" {
+		t.Fatalf("unexpected search transcripts: %#v", searchTranscripts)
+	}
+
 	events, err := store.ListVoiceEvents(ctx, session.ID, 10)
 	if err != nil {
 		t.Fatalf("list voice events: %v", err)

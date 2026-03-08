@@ -1,0 +1,226 @@
+package voice
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/Sigumaa/yururi_personal/internal/memory"
+)
+
+type runtimeSession struct {
+	session Session
+	cancel  context.CancelFunc
+}
+
+func (e *Engine) sessionRuntime(guildID string) (*runtimeSession, bool) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	runtime, ok := e.sessions[guildID]
+	return runtime, ok
+}
+
+func (e *Engine) configureRealtime(ctx context.Context, session *Session) {
+	session.Realtime = statusOf(e.realtime)
+	if e.realtime == nil {
+		return
+	}
+	if err := e.realtime.Connect(ctx); err != nil {
+		e.logger.Warn("voice realtime connect failed", "guild_id", session.GuildID, "channel_id", session.ChannelID, "error", err)
+		session.Realtime = statusOf(e.realtime)
+		return
+	}
+	if err := e.realtime.ConfigureSession(ctx, DefaultSessionConfig(session.ChannelName)); err != nil {
+		e.logger.Warn("voice realtime session configure failed", "guild_id", session.GuildID, "channel_id", session.ChannelID, "error", err)
+	}
+	session.Realtime = statusOf(e.realtime)
+}
+
+func (e *Engine) startSessionRuntime(guildID string, session Session) {
+	ctx, cancel := context.WithCancel(context.Background())
+	runtime := &runtimeSession{
+		session: session,
+		cancel:  cancel,
+	}
+	e.mu.Lock()
+	if current, ok := e.sessions[guildID]; ok && current.cancel != nil {
+		current.cancel()
+	}
+	e.sessions[guildID] = runtime
+	e.mu.Unlock()
+	if e.realtime == nil {
+		return
+	}
+	go e.consumeRealtimeEvents(ctx, guildID, session.ID)
+}
+
+func (e *Engine) consumeRealtimeEvents(ctx context.Context, guildID string, sessionID string) {
+	events := e.realtime.Events()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case event, ok := <-events:
+			if !ok {
+				return
+			}
+			if err := e.handleRealtimeEvent(ctx, guildID, sessionID, event); err != nil {
+				e.logger.Warn("voice realtime event handling failed", "guild_id", guildID, "session_id", sessionID, "event_type", event.Type, "error", err)
+			}
+		}
+	}
+}
+
+func (e *Engine) handleRealtimeEvent(ctx context.Context, guildID string, sessionID string, event ServerEvent) error {
+	now := time.Now().UTC()
+	save := func(kind string, metadata map[string]any) error {
+		return e.store.SaveVoiceEvent(ctx, memory.VoiceEvent{
+			SessionID: sessionID,
+			Type:      kind,
+			ChannelID: e.sessionChannelID(guildID),
+			CreatedAt: now,
+			Metadata:  metadata,
+		})
+	}
+
+	switch event.Type {
+	case "input_audio_buffer.speech_started":
+		if err := save("user_speaking_started", map[string]any{"raw_type": event.Type}); err != nil {
+			return err
+		}
+		if err := e.setSessionState(ctx, guildID, SessionStateListening); err != nil {
+			return err
+		}
+		if e.realtime != nil {
+			_ = e.realtime.CancelResponse(ctx)
+		}
+		return nil
+	case "input_audio_buffer.speech_stopped":
+		return save("user_speaking_stopped", map[string]any{"raw_type": event.Type})
+	case "response.created":
+		if err := save("response_created", map[string]any{"raw_type": event.Type, "response_id": event.responseID()}); err != nil {
+			return err
+		}
+		return e.setSessionState(ctx, guildID, SessionStateThinking)
+	case "response.audio.delta", "response.audio_transcript.delta", "response.text.delta":
+		if err := save("response_streaming", map[string]any{"raw_type": event.Type, "response_id": event.responseID()}); err != nil {
+			return err
+		}
+		return e.setSessionState(ctx, guildID, SessionStateSpeaking)
+	case "response.done":
+		if err := save("response_completed", map[string]any{"raw_type": event.Type, "response_id": event.responseID()}); err != nil {
+			return err
+		}
+		return e.setSessionState(ctx, guildID, SessionStateListening)
+	case "conversation.item.input_audio_transcription.completed":
+		text := strings.TrimSpace(event.transcript())
+		if text == "" {
+			return nil
+		}
+		if err := e.RecordTranscript(ctx, guildID, memory.VoiceTranscriptSegment{
+			SessionID:   sessionID,
+			SpeakerID:   e.ownerUserID,
+			SpeakerName: "owner",
+			Role:        "user",
+			Content:     text,
+			StartedAt:   now,
+			Metadata: map[string]any{
+				"source":   "realtime",
+				"item_id":  event.conversationItemID(),
+				"raw_type": event.Type,
+			},
+		}); err != nil {
+			return err
+		}
+		return save("transcript_user", map[string]any{"raw_type": event.Type, "item_id": event.conversationItemID()})
+	case "response.audio_transcript.done", "response.text.done":
+		text := strings.TrimSpace(event.transcript())
+		if text == "" {
+			return nil
+		}
+		if err := e.RecordTranscript(ctx, guildID, memory.VoiceTranscriptSegment{
+			SessionID:   sessionID,
+			SpeakerID:   "yururi",
+			SpeakerName: "ゆるり",
+			Role:        "assistant",
+			Content:     text,
+			StartedAt:   now,
+			Metadata: map[string]any{
+				"source":      "realtime",
+				"response_id": event.responseID(),
+				"item_id":     event.conversationItemID(),
+				"raw_type":    event.Type,
+			},
+		}); err != nil {
+			return err
+		}
+		return save("transcript_assistant", map[string]any{"raw_type": event.Type, "response_id": event.responseID()})
+	case "error":
+		return save("realtime_error", map[string]any{"raw_type": event.Type, "event": string(event.Raw)})
+	default:
+		return save("realtime_event", map[string]any{"raw_type": event.Type})
+	}
+}
+
+func (e *Engine) setSessionState(ctx context.Context, guildID string, state SessionState) error {
+	e.mu.Lock()
+	runtime, ok := e.sessions[guildID]
+	if !ok {
+		e.mu.Unlock()
+		return nil
+	}
+	runtime.session.State = state
+	session := runtime.session
+	e.mu.Unlock()
+	return e.store.UpsertVoiceSession(ctx, memory.VoiceSession{
+		ID:          session.ID,
+		GuildID:     session.GuildID,
+		ChannelID:   session.ChannelID,
+		ChannelName: session.ChannelName,
+		State:       string(state),
+		Source:      "discord_voice",
+		StartedAt:   session.StartedAt,
+		EndedAt:     session.EndedAt,
+		Metadata: map[string]any{
+			"realtime_model":     session.Realtime.Model,
+			"realtime_connected": session.Realtime.Connected,
+		},
+	})
+}
+
+func (e *Engine) sessionChannelID(guildID string) string {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	runtime, ok := e.sessions[guildID]
+	if !ok {
+		return ""
+	}
+	return runtime.session.ChannelID
+}
+
+func (e *Engine) mirrorTranscriptAsMessage(ctx context.Context, session Session, segment memory.VoiceTranscriptSegment) error {
+	authorID := strings.TrimSpace(segment.SpeakerID)
+	if authorID == "" {
+		authorID = segment.Role
+	}
+	authorName := strings.TrimSpace(segment.SpeakerName)
+	if authorName == "" {
+		authorName = segment.Role
+	}
+	messageID := fmt.Sprintf("voice:%s:%d:%s", segment.SessionID, segment.StartedAt.UnixNano(), segment.Role)
+	return e.store.SaveMessage(ctx, memory.Message{
+		ID:          messageID,
+		ChannelID:   session.ChannelID,
+		ChannelName: "[voice] " + session.ChannelName,
+		AuthorID:    authorID,
+		AuthorName:  authorName,
+		Content:     segment.Content,
+		CreatedAt:   segment.StartedAt,
+		Metadata: map[string]any{
+			"source":        "voice_transcript",
+			"voice_session": segment.SessionID,
+			"voice_role":    segment.Role,
+		},
+	})
+}

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -123,6 +124,61 @@ func (s *Store) ListVoiceTranscripts(ctx context.Context, sessionID string, limi
 	`, sessionID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list voice transcripts: %w", err)
+	}
+	defer rows.Close()
+	var out []VoiceTranscriptSegment
+	for rows.Next() {
+		item, err := scanVoiceTranscript(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) RecentVoiceTranscripts(ctx context.Context, limit int) ([]VoiceTranscriptSegment, error) {
+	if limit <= 0 {
+		limit = 32
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, session_id, speaker_id, speaker_name, role, content, started_at, ended_at, metadata_json
+		FROM voice_transcripts
+		ORDER BY started_at DESC
+		LIMIT ?
+	`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("recent voice transcripts: %w", err)
+	}
+	defer rows.Close()
+	var out []VoiceTranscriptSegment
+	for rows.Next() {
+		item, err := scanVoiceTranscript(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) SearchVoiceTranscripts(ctx context.Context, query string, limit int) ([]VoiceTranscriptSegment, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, session_id, speaker_id, speaker_name, role, content, started_at, ended_at, metadata_json
+		FROM voice_transcripts
+		WHERE content LIKE ?
+		ORDER BY started_at DESC
+		LIMIT ?
+	`, "%"+query+"%", limit)
+	if err != nil {
+		return nil, fmt.Errorf("search voice transcripts: %w", err)
 	}
 	defer rows.Close()
 	var out []VoiceTranscriptSegment

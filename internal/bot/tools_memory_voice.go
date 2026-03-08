@@ -97,6 +97,61 @@ func (a *App) registerMemoryVoiceTools(registry *codex.ToolRegistry) {
 		}
 		return textTool(strings.Join(lines, "\n")), nil
 	})
+
+	registry.Register(codex.ToolSpec{
+		Name:        "memory.recent_voice_transcripts",
+		Description: "保存済みの VC transcript を新しい順に見る",
+		InputSchema: objectSchema(fieldSchema("limit", "integer", "返す件数")),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+		var input struct {
+			Limit int `json:"limit"`
+		}
+		_ = json.Unmarshal(raw, &input)
+		segments, err := a.store.RecentVoiceTranscripts(ctx, input.Limit)
+		if err != nil {
+			return codex.ToolResponse{}, err
+		}
+		lines := make([]string, 0, len(segments))
+		for _, segment := range segments {
+			lines = append(lines, fmt.Sprintf("- session=%s %s/%s: %s", segment.SessionID, segment.Role, segment.SpeakerName, segment.Content))
+		}
+		if len(lines) == 0 {
+			lines = append(lines, "no voice transcripts")
+		}
+		return textTool(strings.Join(lines, "\n")), nil
+	})
+
+	registry.Register(codex.ToolSpec{
+		Name:        "memory.search_voice_transcripts",
+		Description: "保存済みの VC transcript からキーワード検索する",
+		InputSchema: objectSchema(
+			fieldSchema("query", "string", "検索語"),
+			fieldSchema("limit", "integer", "返す件数"),
+		),
+	}, func(ctx context.Context, raw json.RawMessage) (codex.ToolResponse, error) {
+		var input struct {
+			Query string `json:"query"`
+			Limit int    `json:"limit"`
+		}
+		if err := json.Unmarshal(raw, &input); err != nil {
+			return codex.ToolResponse{}, err
+		}
+		if strings.TrimSpace(input.Query) == "" {
+			return codex.ToolResponse{}, fmt.Errorf("query is required")
+		}
+		segments, err := a.store.SearchVoiceTranscripts(ctx, input.Query, input.Limit)
+		if err != nil {
+			return codex.ToolResponse{}, err
+		}
+		lines := make([]string, 0, len(segments))
+		for _, segment := range segments {
+			lines = append(lines, fmt.Sprintf("- session=%s %s/%s: %s", segment.SessionID, segment.Role, segment.SpeakerName, segment.Content))
+		}
+		if len(lines) == 0 {
+			lines = append(lines, "no voice transcripts")
+		}
+		return textTool(strings.Join(lines, "\n")), nil
+	})
 }
 
 func optionalTimeString(value *time.Time) string {

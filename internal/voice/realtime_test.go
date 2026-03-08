@@ -2,10 +2,12 @@ package voice
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -22,8 +24,18 @@ func TestRealtimeClientConnectsToConfiguredServer(t *testing.T) {
 		}
 		defer conn.Close()
 		for {
-			if _, _, err := conn.ReadMessage(); err != nil {
+			_, payload, err := conn.ReadMessage()
+			if err != nil {
 				return
+			}
+			var event map[string]any
+			if err := json.Unmarshal(payload, &event); err != nil {
+				t.Fatalf("unmarshal client event: %v", err)
+			}
+			if event["type"] == "session.update" {
+				if err := conn.WriteJSON(map[string]any{"type": "session.updated"}); err != nil {
+					t.Fatalf("write session.updated: %v", err)
+				}
 			}
 		}
 	}))
@@ -37,6 +49,17 @@ func TestRealtimeClientConnectsToConfiguredServer(t *testing.T) {
 
 	if err := client.Connect(context.Background()); err != nil {
 		t.Fatalf("connect realtime: %v", err)
+	}
+	if err := client.ConfigureSession(context.Background(), DefaultSessionConfig("voice")); err != nil {
+		t.Fatalf("configure realtime session: %v", err)
+	}
+	select {
+	case event := <-client.Events():
+		if event.Type != "session.updated" {
+			t.Fatalf("unexpected event type: %s", event.Type)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("expected realtime event after session update")
 	}
 	status := client.Status()
 	if !status.Configured || !status.Connected {
