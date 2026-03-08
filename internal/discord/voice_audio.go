@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +20,10 @@ type voiceRuntime struct {
 	closeCh  chan struct{}
 	closed   bool
 	speakers map[uint32]string
+	joinedAt time.Time
+
+	packetCount         int
+	speakingUpdateCount int
 	mu       sync.RWMutex
 }
 
@@ -38,6 +43,7 @@ func newVoiceRuntime(guildID string, channelID string, conn *discordgo.VoiceConn
 		packets:  make(chan VoicePacket, 64),
 		closeCh:  make(chan struct{}),
 		speakers: map[uint32]string{},
+		joinedAt: time.Now().UTC(),
 	}
 }
 
@@ -66,12 +72,26 @@ func (r *voiceRuntime) setSpeaker(ssrc uint32, userID string) {
 		return
 	}
 	r.speakers[ssrc] = userID
+	r.speakingUpdateCount++
 }
 
 func (r *voiceRuntime) speaker(ssrc uint32) string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.speakers[ssrc]
+}
+
+func (r *voiceRuntime) markPacket() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.packetCount++
+	return r.packetCount
+}
+
+func (r *voiceRuntime) stats() (int, int, time.Time) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.packetCount, r.speakingUpdateCount, r.joinedAt
 }
 
 func joinVoiceConnection(session any, guildID string, channelID string, mute bool, deaf bool) (*discordgo.VoiceConnection, error) {
@@ -118,6 +138,7 @@ func (c *Client) JoinVoice(ctx context.Context, guildID string, channelID string
 			return
 		}
 		runtime.setSpeaker(uint32(update.SSRC), update.UserID)
+		slog.Debug("voice speaking update", "guild_id", guildID, "channel_id", channelID, "user_id", update.UserID, "ssrc", update.SSRC, "speaking", update.Speaking)
 	})
 	go c.forwardVoicePackets(runtime)
 
@@ -226,13 +247,30 @@ func (c *Client) waitForVoiceReady(ctx context.Context, conn *discordgo.VoiceCon
 }
 
 func (c *Client) forwardVoicePackets(runtime *voiceRuntime) {
+	idleTimer := time.NewTimer(5 * time.Second)
+	defer idleTimer.Stop()
+	idleWarned := false
 	for {
 		select {
+		case <-idleTimer.C:
+			packetCount, speakingUpdates, joinedAt := runtime.stats()
+			conn := runtime.conn
+			slog.Warn("voice receive idle", "guild_id", runtime.guildID, "channel_id", runtime.channel, "elapsed", time.Since(joinedAt).Round(time.Millisecond), "packets", packetCount, "speaking_updates", speakingUpdates, "conn_ready", conn != nil && conn.Ready, "opus_recv_nil", conn == nil || conn.OpusRecv == nil)
+			idleWarned = true
 		case <-runtime.closeCh:
 			return
 		case packet, ok := <-runtime.conn.OpusRecv:
 			if !ok {
+				packetCount, speakingUpdates, _ := runtime.stats()
+				slog.Warn("voice receive channel closed", "guild_id", runtime.guildID, "channel_id", runtime.channel, "packets", packetCount, "speaking_updates", speakingUpdates)
 				return
+			}
+			packetCount := runtime.markPacket()
+			if packetCount == 1 {
+				slog.Debug("voice receive first packet", "guild_id", runtime.guildID, "channel_id", runtime.channel, "ssrc", packet.SSRC, "sequence", packet.Sequence, "opus_bytes", len(packet.Opus))
+			}
+			if idleWarned {
+				idleWarned = false
 			}
 			userID := runtime.speaker(packet.SSRC)
 			username := c.lookupVoiceUsername(runtime.guildID, userID)

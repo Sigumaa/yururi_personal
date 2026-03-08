@@ -2,8 +2,8 @@ package discord
 
 import (
 	"errors"
-	"strings"
 	"testing"
+	"strings"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -114,5 +114,34 @@ func TestConfigureVoiceConnectionSetsInformationalLogLevel(t *testing.T) {
 	configureVoiceConnection(conn)
 	if conn.LogLevel != discordgo.LogInformational {
 		t.Fatalf("expected voice log level %d, got %d", discordgo.LogInformational, conn.LogLevel)
+	}
+}
+
+func TestVoiceRuntimeTracksSpeakingUpdatesAndPackets(t *testing.T) {
+	runtime := newVoiceRuntime("g-1", "v-1", &discordgo.VoiceConnection{})
+
+	runtime.setSpeaker(42, "user-1")
+	runtime.setSpeaker(42, "")
+
+	if got := runtime.speaker(42); got != "user-1" {
+		t.Fatalf("expected speaker mapping to persist, got %q", got)
+	}
+
+	if got := runtime.markPacket(); got != 1 {
+		t.Fatalf("expected first packet count to be 1, got %d", got)
+	}
+	if got := runtime.markPacket(); got != 2 {
+		t.Fatalf("expected second packet count to be 2, got %d", got)
+	}
+
+	packetCount, speakingUpdates, joinedAt := runtime.stats()
+	if packetCount != 2 {
+		t.Fatalf("expected packet count 2, got %d", packetCount)
+	}
+	if speakingUpdates != 1 {
+		t.Fatalf("expected speaking update count 1, got %d", speakingUpdates)
+	}
+	if joinedAt.IsZero() {
+		t.Fatal("expected joinedAt to be set")
 	}
 }
