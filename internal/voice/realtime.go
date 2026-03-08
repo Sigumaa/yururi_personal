@@ -273,6 +273,22 @@ func (c *WebsocketRealtimeClient) sessionUpdateEvent(session SessionConfig) map[
 }
 
 func nestedSessionUpdateEvent(session SessionConfig) map[string]any {
+	input := map[string]any{
+		"format": map[string]any{
+			"type": session.InputAudioFormat,
+			"rate": session.InputSampleRate,
+		},
+		"turn_detection": map[string]any{
+			"type":               session.TurnDetection,
+			"create_response":    session.CreateResponse,
+			"interrupt_response": session.InterruptResponse,
+		},
+	}
+	if strings.TrimSpace(session.InputTranscriptionModel) != "" {
+		input["transcription"] = map[string]any{
+			"model": session.InputTranscriptionModel,
+		}
+	}
 	return map[string]any{
 		"type": "session.update",
 		"session": map[string]any{
@@ -280,42 +296,41 @@ func nestedSessionUpdateEvent(session SessionConfig) map[string]any {
 			"instructions":      session.Instructions,
 			"output_modalities": []string{"audio"},
 			"audio": map[string]any{
-				"input": map[string]any{
+				"input": input,
+				"output": map[string]any{
 					"format": map[string]any{
-						"type": session.InputAudioFormat,
+						"type": "audio/pcm",
 						"rate": session.OutputSampleRate,
 					},
+					"voice": session.Voice,
 				},
-				"output": map[string]any{
-					"format": session.OutputAudioFormat,
-					"voice":  session.Voice,
-				},
-			},
-			"turn_detection": map[string]any{
-				"type":               session.TurnDetection,
-				"create_response":    session.CreateResponse,
-				"interrupt_response": session.InterruptResponse,
 			},
 		},
 	}
 }
 
 func legacySessionUpdateEvent(session SessionConfig) map[string]any {
-	return map[string]any{
-		"type": "session.update",
-		"session": map[string]any{
-			"type":                "realtime",
-			"instructions":        session.Instructions,
-			"modalities":          []string{"audio"},
-			"voice":               session.Voice,
-			"input_audio_format":  session.InputAudioFormat,
-			"output_audio_format": session.OutputAudioFormat,
-			"turn_detection": map[string]any{
-				"type":               session.TurnDetection,
-				"create_response":    session.CreateResponse,
-				"interrupt_response": session.InterruptResponse,
-			},
+	sessionPayload := map[string]any{
+		"type":                "realtime",
+		"instructions":        session.Instructions,
+		"modalities":          []string{"audio"},
+		"voice":               session.Voice,
+		"input_audio_format":  session.InputAudioFormat,
+		"output_audio_format": session.OutputAudioFormat,
+		"turn_detection": map[string]any{
+			"type":               session.TurnDetection,
+			"create_response":    session.CreateResponse,
+			"interrupt_response": session.InterruptResponse,
 		},
+	}
+	if strings.TrimSpace(session.InputTranscriptionModel) != "" {
+		sessionPayload["input_audio_transcription"] = map[string]any{
+			"model": session.InputTranscriptionModel,
+		}
+	}
+	return map[string]any{
+		"type":    "session.update",
+		"session": sessionPayload,
 	}
 }
 

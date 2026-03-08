@@ -3,14 +3,16 @@ package voice
 import "encoding/json"
 
 type SessionConfig struct {
-	Instructions      string
-	Voice             string
-	InputAudioFormat  string
-	OutputAudioFormat string
-	OutputSampleRate  int
-	TurnDetection     string
-	CreateResponse    bool
-	InterruptResponse bool
+	Instructions            string
+	Voice                   string
+	InputAudioFormat        string
+	InputSampleRate         int
+	InputTranscriptionModel string
+	OutputAudioFormat       string
+	OutputSampleRate        int
+	TurnDetection           string
+	CreateResponse          bool
+	InterruptResponse       bool
 }
 
 type ServerEvent struct {

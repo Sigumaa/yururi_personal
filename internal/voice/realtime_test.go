@@ -86,8 +86,29 @@ func TestRealtimeClientConnectsToConfiguredServer(t *testing.T) {
 		if !ok || inputFormat["type"] != "audio/pcm" {
 			t.Fatalf("expected audio.input.format.type=audio/pcm, got %#v", input["format"])
 		}
-		if output["format"] != "pcm16" {
-			t.Fatalf("expected audio.output.format=pcm16, got %#v", output["format"])
+		if inputFormat["rate"] != float64(defaultInputSampleRate) {
+			t.Fatalf("expected audio.input.format.rate=%d, got %#v", defaultInputSampleRate, inputFormat["rate"])
+		}
+		turnDetection, ok := input["turn_detection"].(map[string]any)
+		if !ok {
+			t.Fatalf("expected audio.input.turn_detection, got %#v", input["turn_detection"])
+		}
+		if turnDetection["create_response"] != false || turnDetection["interrupt_response"] != false {
+			t.Fatalf("unexpected turn_detection config: %#v", turnDetection)
+		}
+		transcription, ok := input["transcription"].(map[string]any)
+		if !ok || transcription["model"] != defaultTranscriptionModel {
+			t.Fatalf("expected input transcription model %s, got %#v", defaultTranscriptionModel, input["transcription"])
+		}
+		outputFormat, ok := output["format"].(map[string]any)
+		if !ok {
+			t.Fatalf("expected audio.output.format object, got %#v", output["format"])
+		}
+		if outputFormat["type"] != "audio/pcm" {
+			t.Fatalf("expected audio.output.format.type=audio/pcm, got %#v", outputFormat["type"])
+		}
+		if outputFormat["rate"] != float64(defaultOutputSampleRate) {
+			t.Fatalf("expected audio.output.format.rate=%d, got %#v", defaultOutputSampleRate, outputFormat["rate"])
 		}
 		if output["voice"] != defaultVoiceName {
 			t.Fatalf("expected audio.output.voice=%s, got %#v", defaultVoiceName, output["voice"])
@@ -235,6 +256,10 @@ func TestRealtimeClientFallsBackToLegacySessionSchemaOnUnknownAudioParameter(t *
 	}
 	if legacySession["input_audio_format"] != defaultInputAudioFormat {
 		t.Fatalf("expected legacy input_audio_format=%s, got %#v", defaultInputAudioFormat, legacySession["input_audio_format"])
+	}
+	transcription, ok := legacySession["input_audio_transcription"].(map[string]any)
+	if !ok || transcription["model"] != defaultTranscriptionModel {
+		t.Fatalf("expected legacy input_audio_transcription model %s, got %#v", defaultTranscriptionModel, legacySession["input_audio_transcription"])
 	}
 
 	third := <-received

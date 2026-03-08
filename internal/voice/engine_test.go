@@ -191,6 +191,12 @@ func TestEngineJoinStatusAndLeave(t *testing.T) {
 	if realtime.config.Voice == "" || realtime.config.Instructions == "" {
 		t.Fatalf("expected realtime session to be configured: %#v", realtime.config)
 	}
+	if realtime.config.Voice != defaultVoiceName {
+		t.Fatalf("expected default voice %s, got %#v", defaultVoiceName, realtime.config.Voice)
+	}
+	if realtime.config.CreateResponse || realtime.config.InterruptResponse {
+		t.Fatalf("expected manual response control, got %#v", realtime.config)
+	}
 
 	current, ok, err := engine.Status(context.Background(), "g-1")
 	if err != nil {

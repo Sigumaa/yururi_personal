@@ -8,23 +8,27 @@ import (
 )
 
 const (
-	defaultVoiceName        = "shimmer"
-	defaultInputAudioFormat = "audio/pcm"
-	defaultOutputAudioFmt   = "pcm16"
-	defaultOutputSampleRate = 24000
-	defaultTurnDetection    = "server_vad"
+	defaultVoiceName          = "marin"
+	defaultInputAudioFormat   = "audio/pcm"
+	defaultOutputAudioFmt     = "pcm16"
+	defaultInputSampleRate    = 24000
+	defaultOutputSampleRate   = 24000
+	defaultTurnDetection      = "server_vad"
+	defaultTranscriptionModel = "gpt-4o-mini-transcribe"
 )
 
 func DefaultSessionConfig(channelName string) SessionConfig {
 	return SessionConfig{
-		Instructions:      sessionInstructions(channelName),
-		Voice:             defaultVoiceName,
-		InputAudioFormat:  defaultInputAudioFormat,
-		OutputAudioFormat: defaultOutputAudioFmt,
-		OutputSampleRate:  defaultOutputSampleRate,
-		TurnDetection:     defaultTurnDetection,
-		CreateResponse:    true,
-		InterruptResponse: true,
+		Instructions:            sessionInstructions(channelName),
+		Voice:                   defaultVoiceName,
+		InputAudioFormat:        defaultInputAudioFormat,
+		InputSampleRate:         defaultInputSampleRate,
+		InputTranscriptionModel: defaultTranscriptionModel,
+		OutputAudioFormat:       defaultOutputAudioFmt,
+		OutputSampleRate:        defaultOutputSampleRate,
+		TurnDetection:           defaultTurnDetection,
+		CreateResponse:          false,
+		InterruptResponse:       false,
 	}
 }
 
