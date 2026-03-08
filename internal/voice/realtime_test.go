@@ -93,6 +93,12 @@ func TestRealtimeClientConnectsToConfiguredServer(t *testing.T) {
 		if !ok {
 			t.Fatalf("expected audio.input.turn_detection, got %#v", input["turn_detection"])
 		}
+		if turnDetection["type"] != defaultTurnDetection {
+			t.Fatalf("expected turn_detection type %s, got %#v", defaultTurnDetection, turnDetection["type"])
+		}
+		if turnDetection["eagerness"] != defaultTurnEagerness {
+			t.Fatalf("expected turn_detection eagerness %s, got %#v", defaultTurnEagerness, turnDetection["eagerness"])
+		}
 		if turnDetection["create_response"] != false || turnDetection["interrupt_response"] != false {
 			t.Fatalf("unexpected turn_detection config: %#v", turnDetection)
 		}
@@ -256,6 +262,16 @@ func TestRealtimeClientFallsBackToLegacySessionSchemaOnUnknownAudioParameter(t *
 	}
 	if legacySession["input_audio_format"] != defaultInputAudioFormat {
 		t.Fatalf("expected legacy input_audio_format=%s, got %#v", defaultInputAudioFormat, legacySession["input_audio_format"])
+	}
+	turnDetection, ok := legacySession["turn_detection"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected legacy turn_detection map, got %#v", legacySession["turn_detection"])
+	}
+	if turnDetection["type"] != defaultTurnDetection {
+		t.Fatalf("expected legacy turn_detection type %s, got %#v", defaultTurnDetection, turnDetection["type"])
+	}
+	if turnDetection["eagerness"] != defaultTurnEagerness {
+		t.Fatalf("expected legacy turn_detection eagerness %s, got %#v", defaultTurnEagerness, turnDetection["eagerness"])
 	}
 	transcription, ok := legacySession["input_audio_transcription"].(map[string]any)
 	if !ok || transcription["model"] != defaultTranscriptionModel {

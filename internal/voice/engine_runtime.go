@@ -14,7 +14,6 @@ type runtimeSession struct {
 	cancel  context.CancelFunc
 	audio   *audioRuntime
 
-	inputActivity  chan struct{}
 	playbackActive bool
 	inferredSSRC   map[uint32]struct{}
 }
@@ -46,6 +45,7 @@ func (e *Engine) configureRealtime(ctx context.Context, session *Session) {
 		"channel_id", session.ChannelID,
 		"voice", cfg.Voice,
 		"turn_detection", cfg.TurnDetection,
+		"turn_detection_eagerness", cfg.TurnDetectionEagerness,
 		"create_response", cfg.CreateResponse,
 		"interrupt_response", cfg.InterruptResponse,
 		"input_transcription_model", cfg.InputTranscriptionModel,
@@ -60,11 +60,10 @@ func (e *Engine) startSessionRuntime(guildID string, session Session) {
 		e.logger.Warn("voice audio runtime init failed", "guild_id", guildID, "session_id", session.ID, "error", err)
 	}
 	runtime := &runtimeSession{
-		session:       session,
-		cancel:        cancel,
-		audio:         audio,
-		inputActivity: make(chan struct{}, 1),
-		inferredSSRC:  map[uint32]struct{}{},
+		session:      session,
+		cancel:       cancel,
+		audio:        audio,
+		inferredSSRC: map[uint32]struct{}{},
 	}
 	e.mu.Lock()
 	if current, ok := e.sessions[guildID]; ok && current.cancel != nil {
@@ -78,57 +77,8 @@ func (e *Engine) startSessionRuntime(guildID string, session Session) {
 	if e.realtime == nil {
 	} else {
 		go e.consumeRealtimeEvents(ctx, guildID, session.ID)
-		go e.consumeVoiceTurns(ctx, guildID, session.ID, runtime)
 	}
 	go e.consumeDiscordAudio(ctx, guildID, runtime)
-}
-
-func (e *Engine) consumeVoiceTurns(ctx context.Context, guildID string, sessionID string, runtime *runtimeSession) {
-	if runtime == nil || runtime.inputActivity == nil {
-		return
-	}
-	var (
-		timer  *time.Timer
-		timerC <-chan time.Time
-	)
-	stopTimer := func() {
-		if timer == nil {
-			return
-		}
-		if !timer.Stop() {
-			select {
-			case <-timer.C:
-			default:
-			}
-		}
-		timerC = nil
-	}
-	defer stopTimer()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-runtime.inputActivity:
-			if timer == nil {
-				timer = time.NewTimer(voiceInputSilenceWindow)
-			} else {
-				if !timer.Stop() {
-					select {
-					case <-timer.C:
-					default:
-					}
-				}
-				timer.Reset(voiceInputSilenceWindow)
-			}
-			timerC = timer.C
-		case <-timerC:
-			timerC = nil
-			if err := e.commitPendingVoiceTurn(guildID, sessionID); err != nil {
-				e.logger.Warn("voice input commit failed", "guild_id", guildID, "session_id", sessionID, "error", err)
-			}
-		}
-	}
 }
 
 func (e *Engine) consumeRealtimeEvents(ctx context.Context, guildID string, sessionID string) {
@@ -161,13 +111,52 @@ func (e *Engine) handleRealtimeEvent(ctx context.Context, guildID string, sessio
 	}
 
 	switch event.Type {
+	case "session.created", "session.updated":
+		settings := event.sessionSettings()
+		e.logger.Info(
+			"voice realtime session updated",
+			"guild_id", guildID,
+			"session_id", sessionID,
+			"event_type", event.Type,
+			"voice", settings.Voice,
+			"turn_detection", settings.TurnDetection,
+			"turn_detection_eagerness", settings.TurnDetectionEagerness,
+			"create_response", settings.CreateResponse,
+			"interrupt_response", settings.InterruptResponse,
+			"input_transcription_model", settings.InputTranscriptionModel,
+			"instructions_preview", previewText(settings.Instructions, 160),
+		)
+		return save("realtime_session_updated", map[string]any{
+			"raw_type":                  event.Type,
+			"voice":                     settings.Voice,
+			"turn_detection":            settings.TurnDetection,
+			"turn_detection_eagerness":  settings.TurnDetectionEagerness,
+			"create_response":           settings.CreateResponse,
+			"interrupt_response":        settings.InterruptResponse,
+			"input_transcription_model": settings.InputTranscriptionModel,
+		})
 	case "input_audio_buffer.speech_started":
 		if err := save("user_speaking_started", map[string]any{"raw_type": event.Type}); err != nil {
 			return err
 		}
 		return e.setSessionState(ctx, guildID, SessionStateListening)
 	case "input_audio_buffer.speech_stopped":
-		return save("user_speaking_stopped", map[string]any{"raw_type": event.Type})
+		if err := save("user_speaking_stopped", map[string]any{"raw_type": event.Type}); err != nil {
+			return err
+		}
+		runtime, ok := e.sessionRuntime(guildID)
+		if !ok || runtime == nil || runtime.session.ID != sessionID {
+			return nil
+		}
+		switch runtime.session.State {
+		case SessionStateThinking, SessionStateSpeaking, SessionStateLeaving:
+			return nil
+		}
+		if err := e.realtime.CreateResponse(ctx); err != nil {
+			return err
+		}
+		e.logger.Debug("voice response requested", "guild_id", guildID, "session_id", sessionID, "reason", "speech_stopped")
+		return nil
 	case "response.created":
 		if err := save("response_created", map[string]any{"raw_type": event.Type, "response_id": event.responseID()}); err != nil {
 			return err

@@ -284,6 +284,9 @@ func nestedSessionUpdateEvent(session SessionConfig) map[string]any {
 			"interrupt_response": session.InterruptResponse,
 		},
 	}
+	if strings.TrimSpace(session.TurnDetectionEagerness) != "" {
+		input["turn_detection"].(map[string]any)["eagerness"] = session.TurnDetectionEagerness
+	}
 	if strings.TrimSpace(session.InputTranscriptionModel) != "" {
 		input["transcription"] = map[string]any{
 			"model": session.InputTranscriptionModel,
@@ -322,6 +325,9 @@ func legacySessionUpdateEvent(session SessionConfig) map[string]any {
 			"create_response":    session.CreateResponse,
 			"interrupt_response": session.InterruptResponse,
 		},
+	}
+	if strings.TrimSpace(session.TurnDetectionEagerness) != "" {
+		sessionPayload["turn_detection"].(map[string]any)["eagerness"] = session.TurnDetectionEagerness
 	}
 	if strings.TrimSpace(session.InputTranscriptionModel) != "" {
 		sessionPayload["input_audio_transcription"] = map[string]any{

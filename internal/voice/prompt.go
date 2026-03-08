@@ -13,7 +13,8 @@ const (
 	defaultOutputAudioFmt     = "pcm16"
 	defaultInputSampleRate    = 24000
 	defaultOutputSampleRate   = 24000
-	defaultTurnDetection      = "server_vad"
+	defaultTurnDetection      = "semantic_vad"
+	defaultTurnEagerness      = "low"
 	defaultTranscriptionModel = "gpt-4o-mini-transcribe"
 )
 
@@ -27,6 +28,7 @@ func DefaultSessionConfig(channelName string) SessionConfig {
 		OutputAudioFormat:       defaultOutputAudioFmt,
 		OutputSampleRate:        defaultOutputSampleRate,
 		TurnDetection:           defaultTurnDetection,
+		TurnDetectionEagerness:  defaultTurnEagerness,
 		CreateResponse:          false,
 		InterruptResponse:       false,
 	}
@@ -35,6 +37,7 @@ func DefaultSessionConfig(channelName string) SessionConfig {
 func sessionInstructions(channelName string) string {
 	lines := []string{
 		"あなたは Discord VC で会話する、ゆるりです。",
+		"あなたの名前は必ず ゆるり です。Kai など別の名前や別人格を名乗らないでください。",
 		"あなたは女性として話します。自分を男性として説明したり、男だと名乗ったりしないでください。",
 		"一人称は自然な範囲でも必ず わたし を使い、僕、俺、自分 は使わないでください。",
 		"返答は必ず自然な日本語で行ってください。英語や他言語へ勝手に切り替えないでください。",

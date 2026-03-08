@@ -11,6 +11,7 @@ type SessionConfig struct {
 	OutputAudioFormat       string
 	OutputSampleRate        int
 	TurnDetection           string
+	TurnDetectionEagerness  string
 	CreateResponse          bool
 	InterruptResponse       bool
 }
@@ -105,4 +106,85 @@ func (e ServerEvent) errorInfo() (string, string, string) {
 		return "", "", ""
 	}
 	return payload.Error.Code, payload.Error.Param, payload.Error.Message
+}
+
+type SessionSettings struct {
+	Voice                   string
+	Instructions            string
+	TurnDetection           string
+	TurnDetectionEagerness  string
+	InputTranscriptionModel string
+	CreateResponse          bool
+	InterruptResponse       bool
+}
+
+func (e ServerEvent) sessionSettings() SessionSettings {
+	var nested struct {
+		Session struct {
+			Instructions string `json:"instructions"`
+			Audio        struct {
+				Input struct {
+					TurnDetection struct {
+						Type              string `json:"type"`
+						Eagerness         string `json:"eagerness"`
+						CreateResponse    bool   `json:"create_response"`
+						InterruptResponse bool   `json:"interrupt_response"`
+					} `json:"turn_detection"`
+					Transcription struct {
+						Model string `json:"model"`
+					} `json:"transcription"`
+				} `json:"input"`
+				Output struct {
+					Voice string `json:"voice"`
+				} `json:"output"`
+			} `json:"audio"`
+			Voice string `json:"voice"`
+		} `json:"session"`
+	}
+	if e.decode(&nested) {
+		settings := SessionSettings{
+			Voice:                   nested.Session.Audio.Output.Voice,
+			Instructions:            nested.Session.Instructions,
+			TurnDetection:           nested.Session.Audio.Input.TurnDetection.Type,
+			TurnDetectionEagerness:  nested.Session.Audio.Input.TurnDetection.Eagerness,
+			InputTranscriptionModel: nested.Session.Audio.Input.Transcription.Model,
+			CreateResponse:          nested.Session.Audio.Input.TurnDetection.CreateResponse,
+			InterruptResponse:       nested.Session.Audio.Input.TurnDetection.InterruptResponse,
+		}
+		if settings.Voice == "" {
+			settings.Voice = nested.Session.Voice
+		}
+		if settings.Voice != "" || settings.Instructions != "" || settings.TurnDetection != "" {
+			return settings
+		}
+	}
+
+	var legacy struct {
+		Session struct {
+			Instructions  string `json:"instructions"`
+			Voice         string `json:"voice"`
+			TurnDetection struct {
+				Type              string `json:"type"`
+				Eagerness         string `json:"eagerness"`
+				CreateResponse    bool   `json:"create_response"`
+				InterruptResponse bool   `json:"interrupt_response"`
+			} `json:"turn_detection"`
+			InputAudioTranscription struct {
+				Model string `json:"model"`
+			} `json:"input_audio_transcription"`
+		} `json:"session"`
+	}
+	if e.decode(&legacy) {
+		return SessionSettings{
+			Voice:                   legacy.Session.Voice,
+			Instructions:            legacy.Session.Instructions,
+			TurnDetection:           legacy.Session.TurnDetection.Type,
+			TurnDetectionEagerness:  legacy.Session.TurnDetection.Eagerness,
+			InputTranscriptionModel: legacy.Session.InputAudioTranscription.Model,
+			CreateResponse:          legacy.Session.TurnDetection.CreateResponse,
+			InterruptResponse:       legacy.Session.TurnDetection.InterruptResponse,
+		}
+	}
+
+	return SessionSettings{}
 }
