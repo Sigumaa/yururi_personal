@@ -14,6 +14,7 @@ import (
 
 func TestRealtimeClientConnectsToConfiguredServer(t *testing.T) {
 	upgrader := websocket.Upgrader{}
+	received := make(chan map[string]any, 4)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.Contains(r.Header.Get("Authorization"), "Bearer test-key") {
 			t.Fatalf("missing auth header: %s", r.Header.Get("Authorization"))
@@ -31,6 +32,10 @@ func TestRealtimeClientConnectsToConfiguredServer(t *testing.T) {
 			var event map[string]any
 			if err := json.Unmarshal(payload, &event); err != nil {
 				t.Fatalf("unmarshal client event: %v", err)
+			}
+			select {
+			case received <- event:
+			default:
 			}
 			if event["type"] == "session.update" {
 				if err := conn.WriteJSON(map[string]any{"type": "session.updated"}); err != nil {
@@ -52,6 +57,43 @@ func TestRealtimeClientConnectsToConfiguredServer(t *testing.T) {
 	}
 	if err := client.ConfigureSession(context.Background(), DefaultSessionConfig("voice")); err != nil {
 		t.Fatalf("configure realtime session: %v", err)
+	}
+	select {
+	case event := <-received:
+		session, ok := event["session"].(map[string]any)
+		if !ok {
+			t.Fatalf("expected session payload, got %#v", event["session"])
+		}
+		if got := event["type"]; got != "session.update" {
+			t.Fatalf("expected session.update event, got %#v", got)
+		}
+		if got := session["output_modalities"]; got == nil {
+			t.Fatalf("expected output_modalities in session payload")
+		}
+		audio, ok := session["audio"].(map[string]any)
+		if !ok {
+			t.Fatalf("expected audio config, got %#v", session["audio"])
+		}
+		input, ok := audio["input"].(map[string]any)
+		if !ok {
+			t.Fatalf("expected audio.input, got %#v", audio["input"])
+		}
+		output, ok := audio["output"].(map[string]any)
+		if !ok {
+			t.Fatalf("expected audio.output, got %#v", audio["output"])
+		}
+		inputFormat, ok := input["format"].(map[string]any)
+		if !ok || inputFormat["type"] != "audio/pcm" {
+			t.Fatalf("expected audio.input.format.type=audio/pcm, got %#v", input["format"])
+		}
+		if output["format"] != "pcm16" {
+			t.Fatalf("expected audio.output.format=pcm16, got %#v", output["format"])
+		}
+		if output["voice"] != defaultVoiceName {
+			t.Fatalf("expected audio.output.voice=%s, got %#v", defaultVoiceName, output["voice"])
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("expected to capture session.update payload")
 	}
 	select {
 	case event := <-client.Events():

@@ -116,6 +116,7 @@ func (e *Engine) playRealtimeAudio(ctx context.Context, guildID string, event Se
 	}
 	delta := event.audioDelta()
 	if delta == "" {
+		e.logger.Debug("voice audio delta skipped", "guild_id", guildID, "event_type", event.Type, "reason", "empty_delta")
 		return nil
 	}
 	samples, err := decodeAudioDelta(delta)
@@ -127,6 +128,7 @@ func (e *Engine) playRealtimeAudio(ctx context.Context, guildID string, event Se
 	if err != nil {
 		return err
 	}
+	e.logger.Debug("voice audio delta received", "guild_id", guildID, "event_type", event.Type, "sample_count", len(samples), "opus_frames", len(frames))
 	for _, frame := range frames {
 		if err := e.discord.SendVoiceOpus(ctx, guildID, frame); err != nil {
 			return fmt.Errorf("send voice opus: %w", err)

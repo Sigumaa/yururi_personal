@@ -115,16 +115,19 @@ func (c *WebsocketRealtimeClient) ConfigureSession(ctx context.Context, session 
 	return c.send(ctx, map[string]any{
 		"type": "session.update",
 		"session": map[string]any{
-			"type":               "realtime",
-			"instructions":       session.Instructions,
-			"input_audio_format": session.InputAudioFormat,
+			"type":              "realtime",
+			"instructions":      session.Instructions,
+			"output_modalities": []string{"audio"},
 			"audio": map[string]any{
-				"output": map[string]any{
+				"input": map[string]any{
 					"format": map[string]any{
-						"type":        session.OutputAudioFormat,
-						"sample_rate": session.OutputSampleRate,
+						"type": session.InputAudioFormat,
+						"rate": session.OutputSampleRate,
 					},
-					"voice": session.Voice,
+				},
+				"output": map[string]any{
+					"format": session.OutputAudioFormat,
+					"voice":  session.Voice,
 				},
 			},
 			"turn_detection": map[string]any{

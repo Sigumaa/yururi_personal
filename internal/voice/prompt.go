@@ -9,7 +9,7 @@ import (
 
 const (
 	defaultVoiceName        = "alloy"
-	defaultInputAudioFormat = "pcm16"
+	defaultInputAudioFormat = "audio/pcm"
 	defaultOutputAudioFmt   = "pcm16"
 	defaultOutputSampleRate = 24000
 	defaultTurnDetection    = "server_vad"

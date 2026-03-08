@@ -165,16 +165,16 @@ func (e *Engine) handleRealtimeEvent(ctx context.Context, guildID string, sessio
 			return err
 		}
 		return e.setSessionState(ctx, guildID, SessionStateThinking)
-	case "response.audio.delta", "response.output_audio.delta", "response.audio_transcript.delta", "response.text.delta":
+	case "response.audio.delta", "response.output_audio.delta":
 		if err := save("response_streaming", map[string]any{"raw_type": event.Type, "response_id": event.responseID()}); err != nil {
 			return err
 		}
-		if event.Type == "response.audio.delta" || event.Type == "response.output_audio.delta" {
-			if err := e.playRealtimeAudio(ctx, guildID, event); err != nil {
-				return err
-			}
+		if err := e.playRealtimeAudio(ctx, guildID, event); err != nil {
+			return err
 		}
 		return e.setSessionState(ctx, guildID, SessionStateSpeaking)
+	case "response.output_audio_transcript.delta", "response.audio_transcript.delta", "response.text.delta":
+		return save("response_streaming", map[string]any{"raw_type": event.Type, "response_id": event.responseID()})
 	case "response.done":
 		if err := e.flushRealtimeAudio(ctx, guildID); err != nil {
 			return err
@@ -204,7 +204,7 @@ func (e *Engine) handleRealtimeEvent(ctx context.Context, guildID string, sessio
 			return err
 		}
 		return save("transcript_user", map[string]any{"raw_type": event.Type, "item_id": event.conversationItemID()})
-	case "response.audio_transcript.done", "response.text.done":
+	case "response.output_audio_transcript.done", "response.audio_transcript.done", "response.text.done":
 		text := strings.TrimSpace(event.transcript())
 		if text == "" {
 			return nil

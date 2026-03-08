@@ -223,7 +223,7 @@ func TestEngineRecordsRealtimeTranscriptsAndMirrorsMessages(t *testing.T) {
 		"transcript":           "こんばんは",
 	})
 	realtime.events <- mustServerEvent(t, map[string]any{
-		"type":        "response.audio_transcript.done",
+		"type":        "response.output_audio_transcript.done",
 		"response_id": "resp-1",
 		"item_id":     "item-assistant-1",
 		"transcript":  "はい、聞こえていますよ。",
