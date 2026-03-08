@@ -64,3 +64,5 @@ Discord VC の E2EE/DAVE 検証には `Sigumaa/discordgo` fork と `libdave` が
 ```
 
 この script は `any/discordgo/` に fork を clone し、upstream 由来の `setup-dave.sh` を実行し、`go.work` で local replace を作る。
+
+`Sigumaa/discordgo` 自体には `libdave` の build artifact を含めない。初回は local clone 上で `setup-dave.sh` を実行する前提。

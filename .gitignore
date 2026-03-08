@@ -4,7 +4,6 @@ coverage.out
 *.tmp
 *.db
 tmp_*.go
-go.work
 go.work.sum
 
 config/local.toml
