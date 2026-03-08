@@ -16,6 +16,7 @@ type runtimeSession struct {
 
 	inputActivity  chan struct{}
 	playbackActive bool
+	inferredSSRC   map[uint32]struct{}
 }
 
 func (e *Engine) sessionRuntime(guildID string) (*runtimeSession, bool) {
@@ -38,6 +39,17 @@ func (e *Engine) configureRealtime(ctx context.Context, session *Session) {
 	if err := e.realtime.ConfigureSession(ctx, DefaultSessionConfig(session.ChannelName)); err != nil {
 		e.logger.Warn("voice realtime session configure failed", "guild_id", session.GuildID, "channel_id", session.ChannelID, "error", err)
 	}
+	cfg := DefaultSessionConfig(session.ChannelName)
+	e.logger.Info(
+		"voice realtime configured",
+		"guild_id", session.GuildID,
+		"channel_id", session.ChannelID,
+		"voice", cfg.Voice,
+		"turn_detection", cfg.TurnDetection,
+		"create_response", cfg.CreateResponse,
+		"interrupt_response", cfg.InterruptResponse,
+		"input_transcription_model", cfg.InputTranscriptionModel,
+	)
 	session.Realtime = statusOf(e.realtime)
 }
 
@@ -52,6 +64,7 @@ func (e *Engine) startSessionRuntime(guildID string, session Session) {
 		cancel:        cancel,
 		audio:         audio,
 		inputActivity: make(chan struct{}, 1),
+		inferredSSRC:  map[uint32]struct{}{},
 	}
 	e.mu.Lock()
 	if current, ok := e.sessions[guildID]; ok && current.cancel != nil {

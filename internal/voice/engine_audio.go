@@ -82,11 +82,17 @@ func (e *Engine) resolveVoicePacketSpeaker(runtime *runtimeSession, packet disco
 	if strings.TrimSpace(packet.Username) == "" {
 		packet.Username = ownerName
 	}
-	e.logger.Debug("voice packet speaker inferred", "guild_id", packet.GuildID, "channel_id", packet.ChannelID, "ssrc", packet.SSRC, "user_id", packet.UserID)
+	if _, seen := runtime.inferredSSRC[packet.SSRC]; !seen {
+		runtime.inferredSSRC[packet.SSRC] = struct{}{}
+		e.logger.Debug("voice packet speaker inferred", "guild_id", packet.GuildID, "channel_id", packet.ChannelID, "ssrc", packet.SSRC, "user_id", packet.UserID)
+	}
 	return packet
 }
 
 func (e *Engine) forwardDiscordPacket(ctx context.Context, guildID string, runtime *runtimeSession, packet discordsvc.VoicePacket) error {
+	if isComfortNoisePacket(packet.Opus) {
+		return nil
+	}
 	pcm48, err := runtime.audio.decodeDiscordOpus(packet.Opus)
 	if err != nil {
 		return err
@@ -108,6 +114,10 @@ func (e *Engine) forwardDiscordPacket(ctx context.Context, guildID string, runti
 	default:
 	}
 	return nil
+}
+
+func isComfortNoisePacket(opus []byte) bool {
+	return len(opus) <= 3
 }
 
 func (e *Engine) playRealtimeAudio(ctx context.Context, guildID string, event ServerEvent) error {

@@ -713,6 +713,54 @@ func TestFallbackTurnCommitSkipsWhenResponseAlreadyStarted(t *testing.T) {
 	}
 }
 
+func TestComfortNoisePacketDoesNotInterruptOrAppend(t *testing.T) {
+	store, err := memory.Open(filepath.Join(t.TempDir(), "voice-silence.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	discord := &discordStub{
+		channel: discordsvc.Channel{ID: "vc-1", Name: "voice"},
+		members: []discordsvc.VoiceMember{{UserID: "owner", Username: "shiyui", ChannelID: "vc-1"}},
+		packets: make(chan discordsvc.VoicePacket, 16),
+	}
+	realtime := &realtimeStub{events: make(chan ServerEvent, 16)}
+	engine := NewEngine(
+		store,
+		discord,
+		realtime,
+		"owner",
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
+	if _, err := engine.Join(context.Background(), "g-1", "vc-1"); err != nil {
+		t.Fatalf("join: %v", err)
+	}
+
+	runtime, ok := engine.sessionRuntime("g-1")
+	if !ok {
+		t.Fatalf("expected active runtime")
+	}
+	runtime.session.State = SessionStateSpeaking
+
+	discord.packets <- discordsvc.VoicePacket{
+		GuildID:   "g-1",
+		ChannelID: "vc-1",
+		UserID:    "owner",
+		Username:  "shiyui",
+		Opus:      []byte{0xF8, 0xFF, 0xFE},
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	if realtime.canceled != 0 {
+		t.Fatalf("expected comfort noise not to interrupt, canceled=%d", realtime.canceled)
+	}
+	if len(realtime.appended) != 0 {
+		t.Fatalf("expected comfort noise not to append audio, appended=%d", len(realtime.appended))
+	}
+}
+
 func TestSpeechStartedDoesNotCancelResponseDirectly(t *testing.T) {
 	store, err := memory.Open(filepath.Join(t.TempDir(), "voice-speech-started.db"))
 	if err != nil {
