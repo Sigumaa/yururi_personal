@@ -108,3 +108,11 @@ func TestPrepareVoiceConnectionForLeaveClearsChannelID(t *testing.T) {
 		t.Fatalf("expected channel id to be cleared before leave, got %q", conn.ChannelID)
 	}
 }
+
+func TestConfigureVoiceConnectionSetsInformationalLogLevel(t *testing.T) {
+	conn := &discordgo.VoiceConnection{}
+	configureVoiceConnection(conn)
+	if conn.LogLevel != discordgo.LogInformational {
+		t.Fatalf("expected voice log level %d, got %d", discordgo.LogInformational, conn.LogLevel)
+	}
+}

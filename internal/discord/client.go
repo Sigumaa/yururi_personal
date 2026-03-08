@@ -151,6 +151,7 @@ func New(token string) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create discord session: %w", err)
 	}
+	session.LogLevel = discordgo.LogInformational
 	session.Identify.Intents = discordgo.IntentsGuilds |
 		discordgo.IntentsGuildMessages |
 		discordgo.IntentsGuildPresences |

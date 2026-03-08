@@ -41,6 +41,13 @@ func newVoiceRuntime(guildID string, channelID string, conn *discordgo.VoiceConn
 	}
 }
 
+func configureVoiceConnection(conn *discordgo.VoiceConnection) {
+	if conn == nil {
+		return
+	}
+	conn.LogLevel = discordgo.LogInformational
+}
+
 func (r *voiceRuntime) close() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -104,6 +111,7 @@ func (c *Client) JoinVoice(ctx context.Context, guildID string, channelID string
 		_ = conn.Disconnect()
 		return VoiceSession{}, channelErr
 	}
+	configureVoiceConnection(conn)
 	runtime := newVoiceRuntime(guildID, channelID, conn)
 	conn.AddHandler(func(vc *discordgo.VoiceConnection, update *discordgo.VoiceSpeakingUpdate) {
 		if update == nil {
