@@ -101,8 +101,16 @@ func upsampleRealtimeToDiscord(samples []int16) []int16 {
 		return nil
 	}
 	out := make([]int16, 0, len(samples)*4)
-	for _, sample := range samples {
-		out = append(out, sample, sample, sample, sample)
+	for i, sample := range samples {
+		next := sample
+		if i+1 < len(samples) {
+			next = samples[i+1]
+		}
+		mid := int16((int(sample) + int(next)) / 2)
+		out = append(out,
+			sample, sample,
+			mid, mid,
+		)
 	}
 	return out
 }

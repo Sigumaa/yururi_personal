@@ -23,7 +23,7 @@ func TestDownsampleDiscordToRealtime(t *testing.T) {
 
 func TestUpsampleRealtimeToDiscord(t *testing.T) {
 	got := upsampleRealtimeToDiscord([]int16{10, 20})
-	want := []int16{10, 10, 10, 10, 20, 20, 20, 20}
+	want := []int16{10, 10, 15, 15, 20, 20, 20, 20}
 	if len(got) != len(want) {
 		t.Fatalf("unexpected length: got=%d want=%d", len(got), len(want))
 	}
