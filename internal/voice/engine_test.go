@@ -525,6 +525,13 @@ func TestSpeechStoppedRequestsResponseWithoutCommit(t *testing.T) {
 	if realtime.committed != 0 {
 		t.Fatalf("expected no manual commit with VAD enabled, committed=%d", realtime.committed)
 	}
+	session, ok, err := engine.Status(context.Background(), "g-1")
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if !ok || session.State != SessionStateThinking {
+		t.Fatalf("expected session state to move to thinking after response request, got ok=%v state=%q", ok, session.State)
+	}
 }
 
 func TestOwnerVoicePacketWithoutSpeakerMappingIsInferredWhenAlone(t *testing.T) {
@@ -677,6 +684,46 @@ func TestSpeechStoppedSkipsWhenResponseAlreadyStarted(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 	if realtime.committed != 0 || realtime.created != 0 {
 		t.Fatalf("expected speech_stopped to skip request after response.created, committed=%d created=%d", realtime.committed, realtime.created)
+	}
+}
+
+func TestSpeechStartedDoesNotResetSpeakingState(t *testing.T) {
+	store, err := memory.Open(filepath.Join(t.TempDir(), "voice-speech-started.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	realtime := &realtimeStub{events: make(chan ServerEvent, 16)}
+	engine := NewEngine(
+		store,
+		&discordStub{
+			channel: discordsvc.Channel{ID: "vc-1", Name: "voice"},
+			members: []discordsvc.VoiceMember{{UserID: "owner", Username: "shiyui", ChannelID: "vc-1"}},
+		},
+		realtime,
+		"owner",
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
+	if _, err := engine.Join(context.Background(), "g-1", "vc-1"); err != nil {
+		t.Fatalf("join: %v", err)
+	}
+	if err := engine.setSessionState(context.Background(), "g-1", SessionStateSpeaking); err != nil {
+		t.Fatalf("set speaking state: %v", err)
+	}
+
+	realtime.events <- mustServerEvent(t, map[string]any{
+		"type": "input_audio_buffer.speech_started",
+	})
+
+	time.Sleep(100 * time.Millisecond)
+
+	session, ok, err := engine.Status(context.Background(), "g-1")
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if !ok || session.State != SessionStateSpeaking {
+		t.Fatalf("expected speech_started not to reset speaking state, got ok=%v state=%q", ok, session.State)
 	}
 }
 

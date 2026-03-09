@@ -136,10 +136,7 @@ func (e *Engine) handleRealtimeEvent(ctx context.Context, guildID string, sessio
 			"input_transcription_model": settings.InputTranscriptionModel,
 		})
 	case "input_audio_buffer.speech_started":
-		if err := save("user_speaking_started", map[string]any{"raw_type": event.Type}); err != nil {
-			return err
-		}
-		return e.setSessionState(ctx, guildID, SessionStateListening)
+		return save("user_speaking_started", map[string]any{"raw_type": event.Type})
 	case "input_audio_buffer.speech_stopped":
 		if err := save("user_speaking_stopped", map[string]any{"raw_type": event.Type}); err != nil {
 			return err
@@ -153,6 +150,9 @@ func (e *Engine) handleRealtimeEvent(ctx context.Context, guildID string, sessio
 			return nil
 		}
 		if err := e.realtime.CreateResponse(ctx); err != nil {
+			return err
+		}
+		if err := e.setSessionState(ctx, guildID, SessionStateThinking); err != nil {
 			return err
 		}
 		e.logger.Debug("voice response requested", "guild_id", guildID, "session_id", sessionID, "reason", "speech_stopped")
