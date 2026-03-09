@@ -101,6 +101,13 @@ type realtimeStub struct {
 	cleared   int
 	created   int
 	canceled  int
+	truncated []truncateCall
+}
+
+type truncateCall struct {
+	itemID       string
+	contentIndex int
+	audioEndMS   int
 }
 
 func (r *realtimeStub) Connect(context.Context) error {
@@ -142,6 +149,15 @@ func (r *realtimeStub) CreateResponse(context.Context) error {
 
 func (r *realtimeStub) CancelResponse(context.Context) error {
 	r.canceled++
+	return nil
+}
+
+func (r *realtimeStub) TruncateConversationItem(_ context.Context, itemID string, contentIndex int, audioEndMS int) error {
+	r.truncated = append(r.truncated, truncateCall{
+		itemID:       itemID,
+		contentIndex: contentIndex,
+		audioEndMS:   audioEndMS,
+	})
 	return nil
 }
 
@@ -868,6 +884,60 @@ func TestSpeechStartedDoesNotCancelResponseDirectly(t *testing.T) {
 	}
 	if realtime.canceled != 0 {
 		t.Fatalf("expected speech_started not to cancel directly, canceled=%d", realtime.canceled)
+	}
+}
+
+func TestInterruptTruncatesCurrentAssistantAudio(t *testing.T) {
+	store, err := memory.Open(filepath.Join(t.TempDir(), "voice-truncate.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	discord := &discordStub{
+		channel: discordsvc.Channel{ID: "vc-1", Name: "voice"},
+		members: []discordsvc.VoiceMember{{UserID: "owner", Username: "shiyui", ChannelID: "vc-1"}},
+	}
+	realtime := &realtimeStub{events: make(chan ServerEvent, 16)}
+	engine := NewEngine(
+		store,
+		discord,
+		realtime,
+		"owner",
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
+	if _, err := engine.Join(context.Background(), "g-1", "vc-1"); err != nil {
+		t.Fatalf("join: %v", err)
+	}
+	runtime, ok := engine.sessionRuntime("g-1")
+	if !ok {
+		t.Fatalf("expected runtime")
+	}
+
+	if err := engine.handleRealtimeEvent(context.Background(), "g-1", runtime.session.ID, mustServerEvent(t, map[string]any{
+		"type": "response.output_item.added",
+		"item": map[string]any{
+			"id":   "item-assistant-1",
+			"role": "assistant",
+		},
+	})); err != nil {
+		t.Fatalf("handle output item added: %v", err)
+	}
+	runtime.outputAudioMS = 480
+	runtime.playbackActive = true
+
+	if err := engine.Interrupt(context.Background(), "g-1", "owner_voice_activity"); err != nil {
+		t.Fatalf("interrupt: %v", err)
+	}
+
+	if realtime.canceled != 1 {
+		t.Fatalf("expected cancel on interrupt, got %d", realtime.canceled)
+	}
+	if len(realtime.truncated) != 1 {
+		t.Fatalf("expected one truncate call, got %d", len(realtime.truncated))
+	}
+	if realtime.truncated[0].itemID != "item-assistant-1" || realtime.truncated[0].audioEndMS != 480 {
+		t.Fatalf("unexpected truncate payload: %#v", realtime.truncated[0])
 	}
 }
 

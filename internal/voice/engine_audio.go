@@ -120,6 +120,13 @@ func (e *Engine) playRealtimeAudio(ctx context.Context, guildID string, event Se
 	if !ok || runtime.audio == nil {
 		return nil
 	}
+	if itemID := event.conversationItemID(); itemID != "" && runtime.outputItemID == "" {
+		e.mu.Lock()
+		if current, ok := e.sessions[guildID]; ok && current == runtime && current.outputItemID == "" {
+			current.outputItemID = itemID
+		}
+		e.mu.Unlock()
+	}
 	delta := event.audioDelta()
 	if delta == "" {
 		e.logger.Debug("voice audio delta skipped", "guild_id", guildID, "event_type", event.Type, "reason", "empty_delta")
@@ -147,6 +154,13 @@ func (e *Engine) playRealtimeAudio(ctx context.Context, guildID string, event Se
 		if err := e.discord.SendVoiceOpus(ctx, guildID, frame); err != nil {
 			return fmt.Errorf("send voice opus: %w", err)
 		}
+	}
+	if len(frames) > 0 {
+		e.mu.Lock()
+		if current, ok := e.sessions[guildID]; ok && current == runtime {
+			current.outputAudioMS += len(frames) * 20
+		}
+		e.mu.Unlock()
 	}
 	return nil
 }

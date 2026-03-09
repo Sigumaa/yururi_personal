@@ -353,3 +353,108 @@ func TestRealtimeClientReappliesSessionAfterCreatedDefaultsMismatch(t *testing.T
 		t.Fatalf("expected third event to append audio after reapplying config, got %#v", third["type"])
 	}
 }
+
+func TestRealtimeClientCreatesResponseWithExplicitVoiceAndInstructions(t *testing.T) {
+	upgrader := websocket.Upgrader{}
+	received := make(chan map[string]any, 4)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Fatalf("upgrade: %v", err)
+		}
+		defer conn.Close()
+		for {
+			_, payload, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			var event map[string]any
+			if err := json.Unmarshal(payload, &event); err != nil {
+				t.Fatalf("unmarshal client event: %v", err)
+			}
+			received <- event
+		}
+	}))
+	defer server.Close()
+
+	client := NewRealtimeClient(RealtimeOptions{
+		APIKey: "test-key",
+		Model:  "gpt-realtime",
+		URL:    "ws" + strings.TrimPrefix(server.URL, "http"),
+	})
+
+	if err := client.ConfigureSession(context.Background(), DefaultSessionConfig("voice")); err != nil {
+		t.Fatalf("configure realtime session: %v", err)
+	}
+	if err := client.CreateResponse(context.Background()); err != nil {
+		t.Fatalf("create response: %v", err)
+	}
+
+	first := <-received
+	second := <-received
+	if first["type"] != "session.update" {
+		t.Fatalf("expected initial session.update, got %#v", first["type"])
+	}
+	if second["type"] != "response.create" {
+		t.Fatalf("expected response.create event, got %#v", second["type"])
+	}
+	response, ok := second["response"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected response payload, got %#v", second["response"])
+	}
+	if !strings.Contains(response["instructions"].(string), "Kai など別名") {
+		t.Fatalf("expected explicit response instructions, got %#v", response["instructions"])
+	}
+	audio, ok := response["audio"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected response.audio, got %#v", response["audio"])
+	}
+	output, ok := audio["output"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected response.audio.output, got %#v", audio["output"])
+	}
+	if output["voice"] != defaultVoiceName {
+		t.Fatalf("expected response voice %s, got %#v", defaultVoiceName, output["voice"])
+	}
+}
+
+func TestRealtimeClientTruncatesConversationItem(t *testing.T) {
+	upgrader := websocket.Upgrader{}
+	received := make(chan map[string]any, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Fatalf("upgrade: %v", err)
+		}
+		defer conn.Close()
+		for {
+			_, payload, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			var event map[string]any
+			if err := json.Unmarshal(payload, &event); err != nil {
+				t.Fatalf("unmarshal client event: %v", err)
+			}
+			received <- event
+		}
+	}))
+	defer server.Close()
+
+	client := NewRealtimeClient(RealtimeOptions{
+		APIKey: "test-key",
+		Model:  "gpt-realtime",
+		URL:    "ws" + strings.TrimPrefix(server.URL, "http"),
+	})
+	if err := client.TruncateConversationItem(context.Background(), "item-1", 0, 320); err != nil {
+		t.Fatalf("truncate conversation item: %v", err)
+	}
+
+	event := <-received
+	if event["type"] != "conversation.item.truncate" {
+		t.Fatalf("expected truncate event, got %#v", event["type"])
+	}
+	if event["item_id"] != "item-1" || event["audio_end_ms"] != float64(320) {
+		t.Fatalf("unexpected truncate payload: %#v", event)
+	}
+}

@@ -23,6 +23,7 @@ type RealtimeClient interface {
 	ClearInputAudio(context.Context) error
 	CreateResponse(context.Context) error
 	CancelResponse(context.Context) error
+	TruncateConversationItem(context.Context, string, int, int) error
 	Events() <-chan ServerEvent
 	Close() error
 	Status() RealtimeStatus
@@ -141,11 +142,26 @@ func (c *WebsocketRealtimeClient) ClearInputAudio(ctx context.Context) error {
 }
 
 func (c *WebsocketRealtimeClient) CreateResponse(ctx context.Context) error {
-	return c.send(ctx, map[string]any{"type": "response.create"})
+	return c.send(ctx, c.responseCreateEvent())
 }
 
 func (c *WebsocketRealtimeClient) CancelResponse(ctx context.Context) error {
 	return c.send(ctx, map[string]any{"type": "response.cancel"})
+}
+
+func (c *WebsocketRealtimeClient) TruncateConversationItem(ctx context.Context, itemID string, contentIndex int, audioEndMS int) error {
+	if strings.TrimSpace(itemID) == "" {
+		return nil
+	}
+	if audioEndMS < 0 {
+		audioEndMS = 0
+	}
+	return c.send(ctx, map[string]any{
+		"type":          "conversation.item.truncate",
+		"item_id":       itemID,
+		"content_index": contentIndex,
+		"audio_end_ms":  audioEndMS,
+	})
 }
 
 func (c *WebsocketRealtimeClient) Events() <-chan ServerEvent {
@@ -304,6 +320,20 @@ func (c *WebsocketRealtimeClient) sessionUpdateEvent(session SessionConfig) map[
 	return nestedSessionUpdateEvent(session)
 }
 
+func (c *WebsocketRealtimeClient) responseCreateEvent() map[string]any {
+	c.mu.RLock()
+	config := c.sessionConfig
+	legacy := c.legacySchema
+	c.mu.RUnlock()
+	if config == nil {
+		return map[string]any{"type": "response.create"}
+	}
+	if legacy {
+		return legacyResponseCreateEvent(*config)
+	}
+	return nestedResponseCreateEvent(*config)
+}
+
 func nestedSessionUpdateEvent(session SessionConfig) map[string]any {
 	input := map[string]any{
 		"format": map[string]any{
@@ -344,6 +374,25 @@ func nestedSessionUpdateEvent(session SessionConfig) map[string]any {
 	}
 }
 
+func nestedResponseCreateEvent(session SessionConfig) map[string]any {
+	return map[string]any{
+		"type": "response.create",
+		"response": map[string]any{
+			"instructions":      session.Instructions,
+			"output_modalities": []string{"audio"},
+			"audio": map[string]any{
+				"output": map[string]any{
+					"format": map[string]any{
+						"type": "audio/pcm",
+						"rate": session.OutputSampleRate,
+					},
+					"voice": session.Voice,
+				},
+			},
+		},
+	}
+}
+
 func legacySessionUpdateEvent(session SessionConfig) map[string]any {
 	sessionPayload := map[string]any{
 		"type":                "realtime",
@@ -369,6 +418,18 @@ func legacySessionUpdateEvent(session SessionConfig) map[string]any {
 	return map[string]any{
 		"type":    "session.update",
 		"session": sessionPayload,
+	}
+}
+
+func legacyResponseCreateEvent(session SessionConfig) map[string]any {
+	return map[string]any{
+		"type": "response.create",
+		"response": map[string]any{
+			"instructions":        session.Instructions,
+			"modalities":          []string{"audio"},
+			"voice":               session.Voice,
+			"output_audio_format": session.OutputAudioFormat,
+		},
 	}
 }
 

@@ -70,13 +70,24 @@ func (e *Engine) Interrupt(ctx context.Context, guildID string, reason string) e
 			return err
 		}
 	}
+	var truncateItemID string
+	var truncateAudioMS int
 	if runtime, ok := e.sessionRuntime(guildID); ok && runtime.audio != nil {
+		truncateItemID = runtime.outputItemID
+		truncateAudioMS = runtime.outputAudioMS
 		runtime.audio.resetOutput()
 		if runtime.playbackActive {
 			if err := e.discord.SetVoiceSpeaking(ctx, guildID, false); err != nil {
 				return err
 			}
 			runtime.playbackActive = false
+		}
+		runtime.outputItemID = ""
+		runtime.outputAudioMS = 0
+	}
+	if e.realtime != nil && truncateItemID != "" {
+		if err := e.realtime.TruncateConversationItem(ctx, truncateItemID, 0, truncateAudioMS); err != nil {
+			return err
 		}
 	}
 	if err := e.store.SaveVoiceEvent(ctx, memory.VoiceEvent{

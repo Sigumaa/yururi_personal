@@ -16,6 +16,8 @@ type runtimeSession struct {
 
 	playbackActive bool
 	inferredSSRC   map[uint32]struct{}
+	outputItemID   string
+	outputAudioMS  int
 }
 
 func (e *Engine) sessionRuntime(guildID string) (*runtimeSession, bool) {
@@ -162,6 +164,21 @@ func (e *Engine) handleRealtimeEvent(ctx context.Context, guildID string, sessio
 			return err
 		}
 		return e.setSessionState(ctx, guildID, SessionStateThinking)
+	case "response.output_item.added":
+		itemID, role := event.outputItem()
+		if role == "assistant" && itemID != "" {
+			e.mu.Lock()
+			if runtime, ok := e.sessions[guildID]; ok && runtime.session.ID == sessionID {
+				runtime.outputItemID = itemID
+				runtime.outputAudioMS = 0
+			}
+			e.mu.Unlock()
+		}
+		return save("response_output_item_added", map[string]any{
+			"raw_type": event.Type,
+			"item_id":  itemID,
+			"role":     role,
+		})
 	case "response.audio.delta", "response.output_audio.delta":
 		if err := save("response_streaming", map[string]any{"raw_type": event.Type, "response_id": event.responseID()}); err != nil {
 			return err
@@ -176,6 +193,12 @@ func (e *Engine) handleRealtimeEvent(ctx context.Context, guildID string, sessio
 		if err := e.flushRealtimeAudio(ctx, guildID); err != nil {
 			return err
 		}
+		e.mu.Lock()
+		if runtime, ok := e.sessions[guildID]; ok && runtime.session.ID == sessionID {
+			runtime.outputItemID = ""
+			runtime.outputAudioMS = 0
+		}
+		e.mu.Unlock()
 		if err := save("response_completed", map[string]any{"raw_type": event.Type, "response_id": event.responseID()}); err != nil {
 			return err
 		}

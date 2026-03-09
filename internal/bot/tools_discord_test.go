@@ -341,8 +341,11 @@ func (voiceRealtimeStub) CommitInputAudio(context.Context) error                
 func (voiceRealtimeStub) ClearInputAudio(context.Context) error                       { return nil }
 func (voiceRealtimeStub) CreateResponse(context.Context) error                        { return nil }
 func (voiceRealtimeStub) CancelResponse(context.Context) error                        { return nil }
-func (voiceRealtimeStub) Events() <-chan voice.ServerEvent                            { return make(chan voice.ServerEvent) }
-func (voiceRealtimeStub) Close() error                                                { return nil }
+func (voiceRealtimeStub) TruncateConversationItem(context.Context, string, int, int) error {
+	return nil
+}
+func (voiceRealtimeStub) Events() <-chan voice.ServerEvent { return make(chan voice.ServerEvent) }
+func (voiceRealtimeStub) Close() error                     { return nil }
 func (voiceRealtimeStub) Status() voice.RealtimeStatus {
 	return voice.RealtimeStatus{Configured: true, Connected: true, Model: voice.DefaultRealtimeModel}
 }

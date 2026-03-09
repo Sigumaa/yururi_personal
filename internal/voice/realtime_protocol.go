@@ -188,3 +188,20 @@ func (e ServerEvent) sessionSettings() SessionSettings {
 
 	return SessionSettings{}
 }
+
+func (e ServerEvent) outputItem() (string, string) {
+	var payload struct {
+		Item struct {
+			ID   string `json:"id"`
+			Role string `json:"role"`
+		} `json:"item"`
+		ItemID string `json:"item_id"`
+	}
+	if !e.decode(&payload) {
+		return "", ""
+	}
+	if payload.Item.ID != "" {
+		return payload.Item.ID, payload.Item.Role
+	}
+	return payload.ItemID, ""
+}
